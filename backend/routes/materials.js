@@ -39,6 +39,23 @@ router.get("/", async (req, res) => {
   }
 });
 
+// --- Warehouses from SAP OWHS ---
+router.get("/warehouses", async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        "WhsCode" AS "code",
+        "WhsName" AS "name"
+      FROM "OWHS"
+      ORDER BY "WhsCode" ASC
+    `;
+    const [rows] = await db.execute(query);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Available FG & SFG Items in SAP OITM (including those without a BOM yet) ---
 router.get("/available-items", async (req, res) => {
   try {

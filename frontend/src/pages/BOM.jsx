@@ -1,10 +1,17 @@
 import { useState, useEffect, Fragment } from "react";
 
+const DEFAULT_WAREHOUSES = [
+  { code: "01", name: "Tew Automation" },
+  { code: "8", name: "Pashamylaram" },
+  { code: "10", name: "Pathancheru" }
+];
+
 export default function BOM() {
   const [goods, setGoods] = useState([]);
   const [allBoms, setAllBoms] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
   const [availableItems, setAvailableItems] = useState([]);
+  const [warehouses, setWarehouses] = useState(DEFAULT_WAREHOUSES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusMsg, setStatusMsg] = useState(null);
@@ -28,7 +35,7 @@ export default function BOM() {
   const [formIsPhantom, setFormIsPhantom] = useState(false);
   const [formWarehouse, setFormWarehouse] = useState("01");
   const [formLines, setFormLines] = useState([
-    { compType: "raw", itemCode: "", quantity: "" }
+    { compType: "raw", itemCode: "", quantity: "", warehouse: "01" }
   ]);
   const [savingBom, setSavingBom] = useState(false);
   const [modalError, setModalError] = useState(null);
@@ -37,11 +44,12 @@ export default function BOM() {
     setLoading(true);
     setError(null);
     try {
-      const [goodsRes, bomRes, rmRes, availRes] = await Promise.all([
+      const [goodsRes, bomRes, rmRes, availRes, whRes] = await Promise.all([
         fetch("/api/materials/goods"),
         fetch("/api/materials/boms/all"),
         fetch("/api/materials"),
-        fetch("/api/materials/available-items")
+        fetch("/api/materials/available-items"),
+        fetch("/api/materials/warehouses")
       ]);
 
       if (!goodsRes.ok) {
@@ -57,11 +65,15 @@ export default function BOM() {
       const bomsData = await bomRes.json();
       const rmData = rmRes.ok ? await rmRes.json() : [];
       const availData = availRes.ok ? await availRes.json() : [];
+      const whData = whRes.ok ? await whRes.json() : [];
 
       setGoods(goodsData);
       setAllBoms(bomsData);
       setRawMaterials(rmData);
       setAvailableItems(availData);
+      if (Array.isArray(whData) && whData.length > 0) {
+        setWarehouses(whData);
+      }
 
       // Auto-expand first finished good if nothing is expanded yet
       setExpandedAccordions(prev =>
@@ -247,6 +259,7 @@ export default function BOM() {
   const openAddBomModal = () => {
     setEditMode(false);
     setModalError(null);
+    const defaultWh = warehouses[0]?.code || "01";
     const itemsWithoutBom = availableItems.filter(i => i.has_bom === 0);
     if (itemsWithoutBom.length > 0) {
       setParentMode("existing");
@@ -259,12 +272,13 @@ export default function BOM() {
     }
     setFormItemGroup(102);
     setFormIsPhantom(false);
-    setFormWarehouse("01");
+    setFormWarehouse(defaultWh);
     setFormLines([
       {
         compType: "raw",
         itemCode: rawMaterials[0]?.code || "",
-        quantity: ""
+        quantity: "",
+        warehouse: defaultWh
       }
     ]);
     setShowModal(true);
@@ -276,30 +290,50 @@ export default function BOM() {
     setEditMode(true);
     setModalError(null);
     setParentMode("existing");
+    const defaultWh = g.warehouse || warehouses[0]?.code || "01";
     setFormTreeCode(g.code);
     setFormItemName(g.name);
-    setFormWarehouse(g.warehouse || "01");
+    setFormWarehouse(defaultWh);
 
     const existingLines = allBoms
       .filter(b => b.finished_good_id === g.id)
       .map(b => ({
         compType: b.child_good_id ? "sfg" : "raw",
         itemCode: b.item_code || b.raw_material_id || b.child_good_id || "",
-        quantity: String(b.quantity_required ?? "")
+        quantity: String(b.quantity_required ?? ""),
+        warehouse: b.warehouse || defaultWh
       }));
 
     setFormLines(
       existingLines.length > 0
         ? existingLines
-        : [{ compType: "raw", itemCode: rawMaterials[0]?.code || "", quantity: "" }]
+        : [{ compType: "raw", itemCode: rawMaterials[0]?.code || "", quantity: "", warehouse: defaultWh }]
     );
     setShowModal(true);
+  };
+
+  const handleHeaderWarehouseChange = (newWh) => {
+    const oldWh = formWarehouse;
+    setFormWarehouse(newWh);
+    // Sync component lines that were set to the previous header warehouse
+    setFormLines(prev =>
+      prev.map(line =>
+        !line.warehouse || line.warehouse === oldWh
+          ? { ...line, warehouse: newWh }
+          : line
+      )
+    );
   };
 
   const handleAddLine = () => {
     setFormLines(prev => [
       ...prev,
-      { compType: "raw", itemCode: rawMaterials[0]?.code || "", quantity: "" }
+      {
+        compType: "raw",
+        itemCode: rawMaterials[0]?.code || "",
+        quantity: "",
+        warehouse: formWarehouse || warehouses[0]?.code || "01"
+      }
     ]);
   };
 
@@ -334,10 +368,16 @@ export default function BOM() {
       return;
     }
 
+    if (!formWarehouse) {
+      setModalError("Please select a Warehouse.");
+      return;
+    }
+
     const validLines = formLines
       .map(l => ({
         itemCode: String(l.itemCode || "").trim(),
-        quantity: parseFloat(l.quantity)
+        quantity: parseFloat(l.quantity),
+        warehouse: String(l.warehouse || formWarehouse || "01").trim()
       }))
       .filter(l => l.itemCode && !isNaN(l.quantity) && l.quantity > 0);
 
@@ -357,7 +397,7 @@ export default function BOM() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             quantity: totalLineQty,
-            warehouse: formWarehouse || "01",
+            warehouse: formWarehouse,
             lines: validLines
           })
         });
@@ -372,7 +412,7 @@ export default function BOM() {
             itemGroup: Number(formItemGroup),
             isPhantom: formIsPhantom,
             quantity: totalLineQty,
-            warehouse: formWarehouse || "01",
+            warehouse: formWarehouse,
             lines: validLines
           })
         });
@@ -386,7 +426,7 @@ export default function BOM() {
       setShowModal(false);
       setStatusMsg(
         data.message ||
-          `Successfully ${editMode ? "updated" : "created"} BOM for ${cleanTreeCode} in SAP via Service Layer`
+          `Successfully ${editMode ? "updated" : "created"} BOM for ${cleanTreeCode} (Warehouse ${formWarehouse}) in SAP via Service Layer`
       );
       await fetchData();
       setExpandedAccordions(prev => ({ ...prev, [cleanTreeCode]: true }));
@@ -423,6 +463,11 @@ export default function BOM() {
                 <span className={level > 0 ? "text-gray-700" : "text-gray-900 font-semibold"}>
                   {b.name}
                 </span>
+                {b.warehouse && (
+                  <span className="text-[11px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
+                    WH: {b.warehouse}
+                  </span>
+                )}
                 {b.type === "good" && (
                   <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium border border-purple-200">
                     {b.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
@@ -627,6 +672,12 @@ export default function BOM() {
 
                         <span className="font-semibold text-lg text-gray-800">{g.name}</span>
 
+                        {g.warehouse && (
+                          <span className="text-xs font-mono bg-gray-100 text-gray-700 px-2 py-0.5 rounded border border-gray-200">
+                            WH: {g.warehouse}
+                          </span>
+                        )}
+
                         {g.is_intermediate === 1 && (
                           <span className="text-xs bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-medium border border-purple-200">
                             {g.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
@@ -752,7 +803,7 @@ export default function BOM() {
       {/* Add / Edit BOM Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 max-w-3xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 max-w-4xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <h3 className="text-xl font-bold text-gray-800">
@@ -777,9 +828,9 @@ export default function BOM() {
             )}
 
             <form onSubmit={handleSaveBom} className="space-y-5">
-              {/* Parent Product Selection */}
-              {!editMode && (
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+              {/* Parent Product & Warehouse Section */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+                {!editMode && (
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -814,113 +865,164 @@ export default function BOM() {
                       + Create New SAP Item &amp; BOM
                     </button>
                   </div>
+                )}
 
-                  {parentMode === "existing" ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                          Parent Item (FG / SFG in SAP OITM)
-                        </label>
-                        <select
-                          value={formTreeCode}
-                          onChange={e => {
-                            const selected = availableItems.find(i => i.code === e.target.value);
-                            setFormTreeCode(e.target.value);
-                            setFormItemName(selected?.name || "");
-                          }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800"
-                        >
-                          <option value="">-- Select Product --</option>
-                          {itemsWithoutBom.length > 0 && (
-                            <optgroup label="Items Without a BOM Yet">
-                              {itemsWithoutBom.map(item => (
-                                <option key={item.code} value={item.code}>
-                                  {item.code} — {item.name} ({item.is_intermediate ? "SFG" : "FG"})
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          <optgroup label="All FG / SFG Items">
-                            {availableItems.map(item => (
+                {editMode ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        Parent Product
+                      </label>
+                      <div className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-800">
+                        {formTreeCode} — {formItemName}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        BOM Header Warehouse *
+                      </label>
+                      <select
+                        value={formWarehouse}
+                        onChange={e => handleHeaderWarehouseChange(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
+                        required
+                      >
+                        {warehouses.map(wh => (
+                          <option key={wh.code} value={wh.code}>
+                            {wh.code} — {wh.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : parentMode === "existing" ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        Parent Item (FG / SFG in SAP OITM) *
+                      </label>
+                      <select
+                        value={formTreeCode}
+                        onChange={e => {
+                          const selected = availableItems.find(i => i.code === e.target.value);
+                          setFormTreeCode(e.target.value);
+                          setFormItemName(selected?.name || "");
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800"
+                        required
+                      >
+                        <option value="">-- Select Product --</option>
+                        {itemsWithoutBom.length > 0 && (
+                          <optgroup label="Items Without a BOM Yet">
+                            {itemsWithoutBom.map(item => (
                               <option key={item.code} value={item.code}>
-                                {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : ""}
+                                {item.code} — {item.name} ({item.is_intermediate ? "SFG" : "FG"})
                               </option>
                             ))}
                           </optgroup>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                          Warehouse
-                        </label>
-                        <input
-                          type="text"
-                          value={formWarehouse}
-                          onChange={e => setFormWarehouse(e.target.value)}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-                          placeholder="01"
-                        />
-                      </div>
+                        )}
+                        <optgroup label="All FG / SFG Items">
+                          {availableItems.map(item => (
+                            <option key={item.code} value={item.code}>
+                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                          New Item Code
-                        </label>
-                        <input
-                          type="text"
-                          value={formTreeCode}
-                          onChange={e => setFormTreeCode(e.target.value)}
-                          placeholder="e.g. FG0017 or SFG0009"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-mono"
-                          required
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                          Item Name / Description
-                        </label>
-                        <input
-                          type="text"
-                          value={formItemName}
-                          onChange={e => setFormItemName(e.target.value)}
-                          placeholder="e.g. JEPE85 or Additive J"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                          Item Type
-                        </label>
-                        <select
-                          value={formItemGroup}
-                          onChange={e => setFormItemGroup(Number(e.target.value))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-                        >
-                          <option value={102}>Finished Good (FG)</option>
-                          <option value={107}>Sub-Assembly (SFG)</option>
-                        </select>
-                      </div>
-                      {Number(formItemGroup) === 107 && (
-                        <div className="sm:col-span-4 flex items-center gap-2 pt-1">
-                          <input
-                            id="phantom-chk"
-                            type="checkbox"
-                            checked={formIsPhantom}
-                            onChange={e => setFormIsPhantom(e.target.checked)}
-                            className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                          />
-                          <label htmlFor="phantom-chk" className="text-xs font-medium text-gray-700">
-                            Mark as Phantom Sub-Assembly in SAP Item Master
-                          </label>
-                        </div>
-                      )}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        BOM Header Warehouse *
+                      </label>
+                      <select
+                        value={formWarehouse}
+                        onChange={e => handleHeaderWarehouseChange(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
+                        required
+                      >
+                        {warehouses.map(wh => (
+                          <option key={wh.code} value={wh.code}>
+                            {wh.code} — {wh.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        New Item Code *
+                      </label>
+                      <input
+                        type="text"
+                        value={formTreeCode}
+                        onChange={e => setFormTreeCode(e.target.value)}
+                        placeholder="e.g. FG0017 or SFG0009"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-mono"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        Item Name / Description *
+                      </label>
+                      <input
+                        type="text"
+                        value={formItemName}
+                        onChange={e => setFormItemName(e.target.value)}
+                        placeholder="e.g. JEPE85 or Additive J"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        Item Type *
+                      </label>
+                      <select
+                        value={formItemGroup}
+                        onChange={e => setFormItemGroup(Number(e.target.value))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        <option value={102}>Finished Good (FG)</option>
+                        <option value={107}>Sub-Assembly (SFG)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                        Warehouse *
+                      </label>
+                      <select
+                        value={formWarehouse}
+                        onChange={e => handleHeaderWarehouseChange(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
+                        required
+                      >
+                        {warehouses.map(wh => (
+                          <option key={wh.code} value={wh.code}>
+                            {wh.code} — {wh.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {Number(formItemGroup) === 107 && (
+                      <div className="sm:col-span-4 flex items-center gap-2 pt-1">
+                        <input
+                          id="phantom-chk"
+                          type="checkbox"
+                          checked={formIsPhantom}
+                          onChange={e => setFormIsPhantom(e.target.checked)}
+                          className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                        />
+                        <label htmlFor="phantom-chk" className="text-xs font-medium text-gray-700">
+                          Mark as Phantom Sub-Assembly in SAP Item Master
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* BOM Component Lines */}
               <div className="space-y-3">
@@ -946,6 +1048,9 @@ export default function BOM() {
                         </th>
                         <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
                           Component Item
+                        </th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                          Warehouse
                         </th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">
                           BOM Qty (Kg)
@@ -993,6 +1098,19 @@ export default function BOM() {
                                         {sfg.code} — {sfg.name}
                                       </option>
                                     ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={line.warehouse || formWarehouse || "01"}
+                                onChange={e => handleLineChange(idx, "warehouse", e.target.value)}
+                                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
+                              >
+                                {warehouses.map(wh => (
+                                  <option key={wh.code} value={wh.code}>
+                                    {wh.code} — {wh.name}
+                                  </option>
+                                ))}
                               </select>
                             </td>
                             <td className="px-3 py-2 text-right">
