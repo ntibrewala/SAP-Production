@@ -39,6 +39,32 @@ router.get("/", async (req, res) => {
   }
 });
 
+// --- Available FG & SFG Items in SAP OITM (including those without a BOM yet) ---
+router.get("/available-items", async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        T0."ItemCode" AS "code",
+        T0."ItemName" AS "name",
+        T0."ItmsGrpCod" AS "item_group",
+        COALESCE(T0."Phantom", 'N') AS "phantom",
+        CASE WHEN B."Code" IS NOT NULL THEN 1 ELSE 0 END AS "has_bom",
+        CASE 
+          WHEN T0."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" = 107 THEN 1 
+          ELSE 0 
+        END AS "is_intermediate"
+      FROM "OITM" T0
+      LEFT JOIN "OITT" B ON T0."ItemCode" = B."Code"
+      WHERE T0."ItmsGrpCod" IN (102, 107) OR T0."ItemCode" LIKE 'FG%' OR T0."ItemCode" LIKE 'SFG%'
+      ORDER BY "has_bom" ASC, "is_intermediate" ASC, T0."ItemCode" ASC
+    `;
+    const [rows] = await db.execute(query);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Update Production Standard Cost in SAP Item Master strictly via Service Layer ---
 router.put("/std-cost/batch", async (req, res) => {
   try {
@@ -177,35 +203,112 @@ router.get("/boms/all", async (req, res) => {
   }
 });
 
-// --- All SAP Entries / Writes strictly via SAP Business One Service Layer ---
+// --- Create New BOM (and optionally new parent Item) strictly via SAP Service Layer ---
 router.post("/bom", async (req, res) => {
   try {
-    const { treeCode, treeType = "iProductionTree", quantity = 1, warehouse = "01", lines = [] } = req.body;
+    const {
+      createNewItem = false,
+      treeCode,
+      itemName,
+      itemGroup,
+      isPhantom = false,
+      treeType = "iProductionTree",
+      quantity = 1,
+      warehouse = "01",
+      lines = []
+    } = req.body;
+
+    if (!treeCode || !String(treeCode).trim()) {
+      return res.status(400).json({ error: "Product / Parent Item Code is required" });
+    }
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return res.status(400).json({ error: "At least one BOM component line is required" });
+    }
+
+    const cleanCode = String(treeCode).trim();
+
+    // Check if item exists in OITM; if not (or if createNewItem is true), create via Service Layer /Items
+    const [existingItems] = await db.execute(
+      `SELECT "ItemCode" FROM "OITM" WHERE "ItemCode" = ?`,
+      [cleanCode]
+    );
+
+    if (!existingItems || existingItems.length === 0) {
+      if (!itemName || !String(itemName).trim()) {
+        return res.status(400).json({
+          error: "Item " + cleanCode + " does not exist in SAP Item Master. Please provide an Item Name to create it."
+        });
+      }
+      const grpCode = Number(itemGroup) || (cleanCode.toUpperCase().startsWith("SFG") ? 107 : 102);
+      await serviceLayer.post("/Items", {
+        ItemCode: cleanCode,
+        ItemName: String(itemName).trim(),
+        ItemsGroupCode: grpCode,
+        InventoryItem: isPhantom ? "tNO" : "tYES",
+        SalesItem: grpCode === 102 ? "tYES" : "tNO",
+        PurchaseItem: "tNO",
+        IsPhantom: isPhantom ? "tYES" : "tNO",
+        IssueMethod: "im_Backflush"
+      });
+    }
+
+    const totalLineQty = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+    const headerQty = Number(quantity) > 0 ? Number(quantity) : (totalLineQty > 0 ? totalLineQty : 1);
+
     const payload = {
-      TreeCode: treeCode,
+      TreeCode: cleanCode,
       TreeType: treeType,
-      Quantity: Number(quantity),
-      Warehouse: warehouse,
+      Quantity: headerQty,
+      Warehouse: warehouse || "01",
       ProductTreeLines: lines.map((l) => ({
-        ItemCode: l.itemCode,
+        ItemCode: String(l.itemCode).trim(),
         Quantity: Number(l.quantity),
-        Warehouse: l.warehouse || warehouse,
+        Warehouse: l.warehouse || warehouse || "01",
         IssueMethod: l.issueMethod || "im_Backflush"
       }))
     };
+
     const result = await serviceLayer.post("/ProductTrees", payload);
-    res.status(201).json(result);
+    res.status(201).json({
+      message: "Created BOM for " + cleanCode + " in SAP via Service Layer",
+      result
+    });
   } catch (err) {
+    console.error("[ServiceLayer] Create BOM error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// --- Update Existing BOM strictly via SAP Service Layer ---
 router.put("/bom/:treeCode", async (req, res) => {
   try {
     const { treeCode } = req.params;
-    const result = await serviceLayer.patch("/ProductTrees('" + encodeURIComponent(treeCode) + "')", req.body);
-    res.json(result || { message: "BOM updated via SAP Service Layer" });
+    const { quantity, warehouse = "01", lines } = req.body;
+
+    const payload = {};
+    if (quantity !== undefined && Number(quantity) > 0) {
+      payload.Quantity = Number(quantity);
+    }
+    if (warehouse) {
+      payload.Warehouse = warehouse;
+    }
+    if (Array.isArray(lines) && lines.length > 0) {
+      payload.ProductTreeLines = lines.map((l) => ({
+        ItemCode: String(l.itemCode).trim(),
+        Quantity: Number(l.quantity),
+        Warehouse: l.warehouse || warehouse || "01",
+        IssueMethod: l.issueMethod || "im_Backflush"
+      }));
+    }
+
+    const result = await serviceLayer.patch(
+      "/ProductTrees('" + encodeURIComponent(treeCode) + "')",
+      payload,
+      { "B1S-ReplaceCollectionsOnPatch": "true" }
+    );
+    res.json(result || { message: "Updated BOM for " + treeCode + " via SAP Service Layer" });
   } catch (err) {
+    console.error("[ServiceLayer] Update BOM error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

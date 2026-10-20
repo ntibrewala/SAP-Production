@@ -7,7 +7,7 @@ let b1Session = "";
 let routeId = "";
 let isLoggedIn = false;
 
-function rawRequest(method, fullUrl, bodyObj = null, cookies = "") {
+function rawRequest(method, fullUrl, bodyObj = null, cookies = "", extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(fullUrl);
     const isHttps = parsedUrl.protocol === "https:";
@@ -17,7 +17,8 @@ function rawRequest(method, fullUrl, bodyObj = null, cookies = "") {
 
     const headers = {
       "User-Agent": "Mozilla/5.0",
-      "Accept": "application/json"
+      "Accept": "application/json",
+      ...extraHeaders
     };
 
     if (bodyStr !== null) {
@@ -103,19 +104,19 @@ async function login(force = false) {
   isLoggedIn = true;
 }
 
-async function request(method, endpoint, payload = null, retry = true) {
+async function request(method, endpoint, payload = null, retry = true, extraHeaders = {}) {
   await login(false);
   const cfg = loadSAPConfig();
   const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   const fullUrl = `${cfg.ServiceLayer.url}${cleanEndpoint}`;
   const cookieHeader = `B1SESSION=${b1Session}${routeId ? `; ROUTEID=${routeId}` : ""}`;
 
-  const res = await rawRequest(method, fullUrl, payload, cookieHeader);
+  const res = await rawRequest(method, fullUrl, payload, cookieHeader, extraHeaders);
 
   if (res.statusCode === 401 && retry) {
     isLoggedIn = false;
     await login(true);
-    return request(method, endpoint, payload, false);
+    return request(method, endpoint, payload, false, extraHeaders);
   }
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -128,8 +129,9 @@ async function request(method, endpoint, payload = null, retry = true) {
 
 module.exports = {
   login,
-  get: (endpoint) => request("GET", endpoint),
-  post: (endpoint, payload) => request("POST", endpoint, payload),
-  patch: (endpoint, payload) => request("PATCH", endpoint, payload),
-  delete: (endpoint) => request("DELETE", endpoint)
+  get: (endpoint, extraHeaders) => request("GET", endpoint, null, true, extraHeaders),
+  post: (endpoint, payload, extraHeaders) => request("POST", endpoint, payload, true, extraHeaders),
+  patch: (endpoint, payload, extraHeaders) => request("PATCH", endpoint, payload, true, extraHeaders),
+  put: (endpoint, payload, extraHeaders) => request("PUT", endpoint, payload, true, extraHeaders),
+  delete: (endpoint, extraHeaders) => request("DELETE", endpoint, null, true, extraHeaders)
 };
