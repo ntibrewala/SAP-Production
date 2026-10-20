@@ -113,9 +113,16 @@ export default function BOM() {
     setExpandedNodes({});
   };
 
-  const getBOMCostAndItems = (goodId, requestedQty = null, visited = new Set()) => {
+  // Recursive BOM cost calculator for both Production Standard Cost and Last Purchase Price
+  const getBOMCostAndItems = (goodId, requestedQty = null, visited = new Set(), parentShare = 1) => {
     if (visited.has(goodId)) {
-      return { totalCost: 0, items: [], totalRawQty: 0, unitCost: 0 };
+      return {
+        items: [],
+        totalRawQty: 0,
+        produceQty: 0,
+        stdUnitCost: 0,
+        purUnitCost: 0
+      };
     }
     const nextVisited = new Set(visited);
     nextVisited.add(goodId);
@@ -126,44 +133,77 @@ export default function BOM() {
     // Top-level uses its SAP BOM quantities. Sub-assemblies scale to the parent required quantity.
     const produceQty = requestedQty !== null ? requestedQty : totalRawQty;
 
-    let totalCost = 0;
+    let stdUnitCost = 0;
+    let purUnitCost = 0;
 
     const renderedItems = items.map(item => {
       const rawQty = parseFloat(item.quantity_required || 0);
-      const actualQty = totalRawQty > 0 ? (rawQty / totalRawQty) * produceQty : 0;
+      const localShare = totalRawQty > 0 ? rawQty / totalRawQty : 0;
+      const effectiveShare = parentShare * localShare;
+      const actualQty = localShare * produceQty;
 
       if (item.raw_material_id) {
-        const unitRate = parseFloat(item.raw_cost || 0);
-        const cost = actualQty * unitRate;
-        totalCost += cost;
+        const stdUnitRate = parseFloat(item.prod_std_cost || 0);
+        const purUnitRate = parseFloat(item.last_purchase_cost ?? item.raw_cost ?? 0);
+
+        const localStdCostPerKg = localShare * stdUnitRate;
+        const localPurCostPerKg = localShare * purUnitRate;
+
+        const stdCostPerKg = effectiveShare * stdUnitRate;
+        const purCostPerKg = effectiveShare * purUnitRate;
+
+        stdUnitCost += localStdCostPerKg;
+        purUnitCost += localPurCostPerKg;
+
         return {
           ...item,
           type: "raw",
           code: item.item_code || item.raw_material_id,
           name: item.raw_name,
-          unitRate,
-          cost,
+          stdUnitRate,
+          purUnitRate,
+          stdCostPerKg,
+          purCostPerKg,
           uom: item.raw_uom || "Kg",
           actualQty,
-          rawQty
+          rawQty,
+          localShare,
+          effectiveShare
         };
       }
 
       if (item.child_good_id) {
-        const childData = getBOMCostAndItems(item.child_good_id, actualQty, nextVisited);
-        const fallbackRate = parseFloat(item.raw_cost || 0);
-        const cost = childData.items.length > 0 ? childData.totalCost : actualQty * fallbackRate;
-        const unitRate = actualQty > 0 ? cost / actualQty : fallbackRate;
-        totalCost += cost;
+        const childData = getBOMCostAndItems(item.child_good_id, actualQty, nextVisited, effectiveShare);
+        const hasChildBom = childData.items.length > 0;
+
+        const fallbackStdRate = parseFloat(item.prod_std_cost || 0);
+        const fallbackPurRate = parseFloat(item.last_purchase_cost ?? item.raw_cost ?? 0);
+
+        const stdUnitRate = hasChildBom ? childData.stdUnitCost : fallbackStdRate;
+        const purUnitRate = hasChildBom ? childData.purUnitCost : fallbackPurRate;
+
+        const localStdCostPerKg = localShare * stdUnitRate;
+        const localPurCostPerKg = localShare * purUnitRate;
+
+        const stdCostPerKg = effectiveShare * stdUnitRate;
+        const purCostPerKg = effectiveShare * purUnitRate;
+
+        stdUnitCost += localStdCostPerKg;
+        purUnitCost += localPurCostPerKg;
+
         return {
           ...item,
           type: "good",
           code: item.item_code || item.child_good_id,
           name: item.child_name,
-          unitRate,
-          cost,
+          stdUnitRate,
+          purUnitRate,
+          stdCostPerKg,
+          purCostPerKg,
           actualQty,
           rawQty,
+          localShare,
+          effectiveShare,
           childData,
           uom: item.raw_uom || "Kg"
         };
@@ -172,8 +212,13 @@ export default function BOM() {
       return null;
     }).filter(Boolean);
 
-    const unitCost = produceQty > 0 ? totalCost / produceQty : 0;
-    return { totalCost, items: renderedItems, totalRawQty, produceQty, unitCost };
+    return {
+      items: renderedItems,
+      totalRawQty,
+      produceQty,
+      stdUnitCost,
+      purUnitCost
+    };
   };
 
   const renderRecursiveBOM = (bomData, level = 0) => {
@@ -225,16 +270,24 @@ export default function BOM() {
               </span>
             </td>
 
-            <td className="px-4 py-3 text-right font-medium text-blue-600 bg-blue-50/30">
-              {bomData.totalRawQty > 0 ? ((b.rawQty / bomData.totalRawQty) * 100).toFixed(2) : "0.00"}%
+            <td className="px-4 py-3 text-right font-medium text-blue-600 bg-blue-50/20">
+              {(b.effectiveShare * 100).toFixed(2)}%
             </td>
 
-            <td className="px-4 py-3 text-right text-gray-600 text-sm">
-              ₹{b.unitRate.toFixed(2)}
+            {/* Production Standard Cost Calculation */}
+            <td className="px-4 py-3 text-right text-indigo-700 text-sm bg-indigo-50/15">
+              ₹{b.stdUnitRate.toFixed(2)}
+            </td>
+            <td className="px-4 py-3 text-right font-semibold text-indigo-900 text-sm bg-indigo-50/30">
+              ₹{b.stdCostPerKg.toFixed(2)}
             </td>
 
-            <td className="px-4 py-3 text-right font-medium text-gray-800 text-sm">
-              ₹{b.cost.toFixed(2)}
+            {/* Last Purchase Price Calculation */}
+            <td className="px-4 py-3 text-right text-blue-700 text-sm bg-blue-50/15">
+              ₹{b.purUnitRate.toFixed(2)}
+            </td>
+            <td className="px-4 py-3 text-right font-semibold text-blue-900 text-sm bg-blue-50/30">
+              ₹{b.purCostPerKg.toFixed(2)}
             </td>
           </tr>
 
@@ -256,7 +309,7 @@ export default function BOM() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">SAP Bill of Materials (BOM)</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Live multi-level formulations from SAP Business One via <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">D:\BHV\Config\SAPConfig.json</code>
+            Calculates formulation cost per Kg based on <span className="font-semibold text-indigo-700">Production Standard Cost</span> &amp; <span className="font-semibold text-blue-700">Last Purchase Price</span>
           </p>
         </div>
 
@@ -381,18 +434,28 @@ export default function BOM() {
                         )}
                       </div>
 
-                      {/* Stats Block */}
+                      {/* Stats Block: Production Standard Cost & Purchase Price Cost (No Batch Cost) */}
                       <div className="flex items-center gap-6 border-l-2 pl-4 border-gray-200">
                         <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-gray-500 uppercase font-bold tracking-wider">Cost / Kg</div>
-                          <div className="font-bold text-blue-700 text-sm sm:text-base">₹{bomData.unitCost.toFixed(2)}</div>
+                          <div className="text-[10px] sm:text-xs text-indigo-600 uppercase font-bold tracking-wider">
+                            Prod. Std Cost / Kg
+                          </div>
+                          <div className="font-bold text-indigo-800 text-sm sm:text-base">
+                            ₹{bomData.stdUnitCost.toFixed(2)}
+                          </div>
                         </div>
                         <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-gray-500 uppercase font-bold tracking-wider">Batch Cost</div>
-                          <div className="font-bold text-gray-900 text-sm sm:text-base">₹{bomData.totalCost.toFixed(2)}</div>
+                          <div className="text-[10px] sm:text-xs text-blue-600 uppercase font-bold tracking-wider">
+                            Purchase Price Cost / Kg
+                          </div>
+                          <div className="font-bold text-blue-800 text-sm sm:text-base">
+                            ₹{bomData.purUnitCost.toFixed(2)}
+                          </div>
                         </div>
                         <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-gray-500 uppercase font-bold tracking-wider">Batch Qty</div>
+                          <div className="text-[10px] sm:text-xs text-gray-500 uppercase font-bold tracking-wider">
+                            BOM Qty
+                          </div>
                           <div className="font-bold text-emerald-600 text-sm sm:text-base">
                             {bomData.totalRawQty.toFixed(3)}
                           </div>
@@ -404,12 +467,12 @@ export default function BOM() {
                   {/* Accordion Body */}
                   {isSelected && (
                     <div className="border-t border-gray-100 bg-gray-50 p-4 sm:p-5">
-                      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-xs">
+                      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-xs overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
                               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Component (SAP Code & Description)
+                                Component (SAP Code &amp; Description)
                               </th>
                               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                                 BOM Qty
@@ -417,18 +480,24 @@ export default function BOM() {
                               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                                 Normalized %
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Unit Rate (GRPO)
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-700 uppercase tracking-wider bg-indigo-50/40">
+                                Prod. Std Rate
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                Est. Cost
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-900 uppercase tracking-wider bg-indigo-50/70">
+                                Prod. Std Cost / Kg
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-blue-700 uppercase tracking-wider bg-blue-50/40">
+                                Last Pur. Rate
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-blue-900 uppercase tracking-wider bg-blue-50/70">
+                                Purchase Cost / Kg
                               </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {bomData.items.length === 0 ? (
                               <tr>
-                                <td colSpan="5" className="p-8 text-center text-gray-500 italic">
+                                <td colSpan="7" className="p-8 text-center text-gray-500 italic">
                                   No components found for this BOM in SAP.
                                 </td>
                               </tr>
@@ -440,7 +509,7 @@ export default function BOM() {
                             <tfoot className="bg-gray-50 border-t border-gray-200">
                               <tr>
                                 <td className="px-4 py-3.5 text-right font-bold text-gray-800">
-                                  Batch Totals:
+                                  Cost / Kg Summary:
                                 </td>
                                 <td className="px-4 py-3.5 text-right font-bold text-emerald-700 text-base">
                                   {bomData.totalRawQty.toFixed(4)} Kg
@@ -448,11 +517,17 @@ export default function BOM() {
                                 <td className="px-4 py-3.5 text-right font-bold text-blue-700">
                                   100.00%
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-gray-700 text-sm">
-                                  ₹{bomData.unitCost.toFixed(2)} / Kg
+                                <td className="px-4 py-3.5 text-right text-xs font-medium text-indigo-500 bg-indigo-50/30">
+                                  —
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-gray-900 text-lg">
-                                  ₹{bomData.totalCost.toFixed(2)}
+                                <td className="px-4 py-3.5 text-right font-bold text-indigo-900 text-base bg-indigo-50/60">
+                                  ₹{bomData.stdUnitCost.toFixed(2)} / Kg
+                                </td>
+                                <td className="px-4 py-3.5 text-right text-xs font-medium text-blue-500 bg-blue-50/30">
+                                  —
+                                </td>
+                                <td className="px-4 py-3.5 text-right font-bold text-blue-900 text-base bg-blue-50/60">
+                                  ₹{bomData.purUnitCost.toFixed(2)} / Kg
                                 </td>
                               </tr>
                             </tfoot>

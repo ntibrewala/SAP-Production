@@ -4,7 +4,8 @@ export default function Layout({ children }) {
   const location = useLocation();
 
   const navItems = [
-    { name: "Formulations (BOM)", path: "/bom" }
+    { name: "Formulations (BOM)", path: "/bom" },
+    { name: "Raw Materials", path: "/raw-materials" }
   ];
 
   return (
@@ -19,7 +20,9 @@ export default function Layout({ children }) {
               {/* Desktop Tabs */}
               <nav className="hidden md:flex space-x-1">
                 {navItems.map(item => {
-                  const isActive = location.pathname === item.path || location.pathname === "/";
+                  const isActive =
+                    location.pathname === item.path ||
+                    (location.pathname === "/" && item.path === "/bom");
                   return (
                     <Link
                       key={item.name}
@@ -41,7 +44,7 @@ export default function Layout({ children }) {
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                SAP B1 Live (Port 5003)
+                SAP B1 Live (Service Layer)
               </span>
             </div>
           </div>
@@ -49,15 +52,24 @@ export default function Layout({ children }) {
 
         {/* Mobile Tabs */}
         <div className="md:hidden flex overflow-x-auto bg-gray-50 border-t">
-          {navItems.map(item => (
-            <Link
-              key={item.name}
-              to={item.path}
-              className="px-4 py-3 whitespace-nowrap text-sm font-medium flex-1 text-center border-b-2 border-blue-600 text-blue-600 bg-blue-50"
-            >
-              {item.name}
-            </Link>
-          ))}
+          {navItems.map(item => {
+            const isActive =
+              location.pathname === item.path ||
+              (location.pathname === "/" && item.path === "/bom");
+            return (
+              <Link
+                key={item.name}
+                to={item.path}
+                className={`px-4 py-3 whitespace-nowrap text-sm font-medium flex-1 text-center border-b-2 ${
+                  isActive
+                    ? "border-blue-600 text-blue-600 bg-blue-50"
+                    : "border-transparent text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                {item.name}
+              </Link>
+            );
+          })}
         </div>
       </header>
 

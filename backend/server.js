@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 const { loadSAPConfig } = require("./sapConfig");
 
 const app = express();
@@ -29,20 +30,26 @@ app.get("/api/sap-status", (req, res) => {
   });
 });
 
-// Serve the frontend React build
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
+// Serve the frontend React build (supports either ../frontendbuilt or ../frontend/dist)
+const builtDir = fs.existsSync(path.join(__dirname, "../frontendbuilt/index.html"))
+  ? path.join(__dirname, "../frontendbuilt")
+  : path.join(__dirname, "../frontend/dist");
+
+app.use(express.static(builtDir));
 app.use((req, res, next) => {
-  const rootPath = path.join(__dirname, "../frontend/dist");
-  res.sendFile("index.html", { root: rootPath }, (err) => {
+  res.sendFile("index.html", { root: builtDir }, (err) => {
     if (err) {
-      console.error("Error sending file:", err);
       next(err);
     }
   });
 });
 
 const PORT = process.env.PORT || 5003;
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+  if (err) {
+    console.error(`Failed to start SAP-Production Server on port ${PORT}:`, err.message);
+    process.exit(1);
+  }
   const cfg = loadSAPConfig();
   console.log(`SAP-Production Server running on port ${PORT} (Schema: ${cfg.schema}, Config: ${cfg.configPath})`);
 });

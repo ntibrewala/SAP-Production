@@ -3,15 +3,17 @@ const router = express.Router();
 const db = require("../db");
 const serviceLayer = require("../serviceLayer");
 
-// --- Raw Materials (from SAP OITM) ---
+// --- Raw Materials (from SAP OITM + OINM) ---
 router.get("/", async (req, res) => {
   try {
-    const query = `
+    const query = \`
       SELECT 
         T0."ItemCode" AS "id",
         T0."ItemCode" AS "code",
         T0."ItemName" AS "name",
         COALESCE(T0."InvntryUom", 'Kg') AS "uom",
+        CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
+        CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), 0) AS DOUBLE) AS "last_purchase_cost",
         CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), 0) AS DOUBLE) AS "unit_cost",
         CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "stock_level"
       FROM "OITM" T0
@@ -27,9 +29,9 @@ router.get("/", async (req, res) => {
         )
         WHERE "rn" = 1
       ) LC ON T0."ItemCode" = LC."ItemCode"
-      WHERE T0."ItemCode" LIKE 'RM%'
+      WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItmsGrpCod" = 101
       ORDER BY T0."ItemCode" ASC
-    `;
+    \`;
     const [materials] = await db.query(query);
     res.json(materials);
   } catch (err) {
@@ -37,10 +39,66 @@ router.get("/", async (req, res) => {
   }
 });
 
+// --- Update Production Standard Cost in SAP Item Master strictly via Service Layer ---
+router.put("/std-cost/batch", async (req, res) => {
+  try {
+    const { updates } = req.body;
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: "No updates provided" });
+    }
+
+    const results = [];
+    for (const item of updates) {
+      const itemCode = item.code || item.itemCode || item.id;
+      const numericCost = Number(item.prod_std_cost);
+      if (!itemCode || isNaN(numericCost) || numericCost < 0) {
+        throw new Error(\`Invalid Production Standard Cost for item \${itemCode}\`);
+      }
+      await serviceLayer.patch(\`/Items('\${encodeURIComponent(itemCode)}')\`, {
+        ProdStdCost: numericCost
+      });
+      results.push({ code: itemCode, prod_std_cost: numericCost });
+    }
+
+    res.json({
+      message: \`Updated Production Standard Cost for \${results.length} item(s) via SAP Service Layer\`,
+      results
+    });
+  } catch (err) {
+    console.error("[ServiceLayer] Batch ProdStdCost update error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put("/:itemCode/std-cost", async (req, res) => {
+  try {
+    const { itemCode } = req.params;
+    const { prod_std_cost } = req.body;
+    const numericCost = Number(prod_std_cost);
+
+    if (prod_std_cost === undefined || prod_std_cost === null || isNaN(numericCost) || numericCost < 0) {
+      return res.status(400).json({ error: "Valid Production Standard Cost is required" });
+    }
+
+    await serviceLayer.patch(\`/Items('\${encodeURIComponent(itemCode)}')\`, {
+      ProdStdCost: numericCost
+    });
+
+    res.json({
+      message: \`Updated Production Standard Cost for \${itemCode} to ₹\${numericCost.toFixed(2)} via SAP Service Layer\`,
+      code: itemCode,
+      prod_std_cost: numericCost
+    });
+  } catch (err) {
+    console.error(\`[ServiceLayer] Failed to update ProdStdCost for \${req.params.itemCode}:\`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Finished Goods & Sub-Assemblies with BOMs in SAP (OITT + OITM) ---
 router.get("/goods", async (req, res) => {
   try {
-    const query = `
+    const query = \`
       SELECT 
         T0."Code" AS "id",
         T0."Code" AS "code",
@@ -49,6 +107,8 @@ router.get("/goods", async (req, res) => {
         T0."TreeType" AS "bom_type",
         T0."ToWH" AS "warehouse",
         COALESCE(P."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(P."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
+        CAST(COALESCE(P."LastPurPrc", 0) AS DOUBLE) AS "last_purchase_cost",
         CASE 
           WHEN P."Phantom" = 'Y' OR T0."Code" LIKE 'SFG%' OR P."ItmsGrpCod" = 107 THEN 1 
           ELSE 0 
@@ -56,7 +116,7 @@ router.get("/goods", async (req, res) => {
       FROM "OITT" T0
       LEFT JOIN "OITM" P ON T0."Code" = P."ItemCode"
       ORDER BY "is_intermediate" ASC, T0."Code" ASC
-    `;
+    \`;
     const [rows] = await db.execute(query);
     res.json(rows);
   } catch (err) {
@@ -67,7 +127,7 @@ router.get("/goods", async (req, res) => {
 // --- Bill of Materials (BOM) Rows from SAP (ITT1 + OITT + OITM + OINM) ---
 router.get("/boms/all", async (req, res) => {
   try {
-    const query = `
+    const query = \`
       SELECT 
         T1."Father" || '_' || CAST(T1."ChildNum" AS VARCHAR) AS "id",
         T1."Father" AS "finished_good_id",
@@ -88,6 +148,8 @@ router.get("/boms/all", async (req, res) => {
         T1."Warehouse" AS "warehouse",
         T1."IssueMthd" AS "issue_method",
         COALESCE(C."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(C."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
+        CAST(COALESCE(LC."Price", NULLIF(C."LastPurPrc", 0), NULLIF(C."AvgPrice", 0), 0) AS DOUBLE) AS "last_purchase_cost",
         CAST(COALESCE(LC."Price", NULLIF(C."LastPurPrc", 0), NULLIF(C."AvgPrice", 0), 0) AS DOUBLE) AS "raw_cost",
         CASE WHEN CHILD_BOM."Code" IS NOT NULL THEN 1 ELSE 0 END AS "has_child_bom"
       FROM "ITT1" T1
@@ -107,7 +169,7 @@ router.get("/boms/all", async (req, res) => {
         WHERE "rn" = 1
       ) LC ON T1."Code" = LC."ItemCode"
       ORDER BY T1."Father" ASC, T1."ChildNum" ASC
-    `;
+    \`;
     const [rows] = await db.execute(query);
     res.json(rows);
   } catch (err) {
@@ -141,7 +203,7 @@ router.post("/bom", async (req, res) => {
 router.put("/bom/:treeCode", async (req, res) => {
   try {
     const { treeCode } = req.params;
-    const result = await serviceLayer.patch(`/ProductTrees('${encodeURIComponent(treeCode)}')`, req.body);
+    const result = await serviceLayer.patch(\`/ProductTrees('\${encodeURIComponent(treeCode)}')\`, req.body);
     res.json(result || { message: "BOM updated via SAP Service Layer" });
   } catch (err) {
     res.status(500).json({ error: err.message });
