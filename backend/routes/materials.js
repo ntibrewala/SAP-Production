@@ -220,15 +220,11 @@ router.get("/boms/all", async (req, res) => {
   }
 });
 
-// --- Create New BOM (and optionally new parent Item) strictly via SAP Service Layer ---
+// --- Create New BOM for an existing SAP FG or SFG Item strictly via SAP Service Layer ---
 router.post("/bom", async (req, res) => {
   try {
     const {
-      createNewItem = false,
       treeCode,
-      itemName,
-      itemGroup,
-      isPhantom = false,
       treeType = "iProductionTree",
       quantity = 1,
       warehouse = "01",
@@ -236,37 +232,57 @@ router.post("/bom", async (req, res) => {
     } = req.body;
 
     if (!treeCode || !String(treeCode).trim()) {
-      return res.status(400).json({ error: "Product / Parent Item Code is required" });
+      return res.status(400).json({ error: "Please select an existing Finished Good (FG) or Semi-Finished Good (SFG) from SAP Item Master." });
     }
     if (!Array.isArray(lines) || lines.length === 0) {
-      return res.status(400).json({ error: "At least one BOM component line is required" });
+      return res.status(400).json({ error: "At least one BOM component line (RM or SFG) is required." });
     }
 
     const cleanCode = String(treeCode).trim();
 
-    // Check if item exists in OITM; if not (or if createNewItem is true), create via Service Layer /Items
-    const [existingItems] = await db.execute(
-      `SELECT "ItemCode" FROM "OITM" WHERE "ItemCode" = ?`,
+    // 1. Verify Parent Item exists in OITM and is strictly FG (102) or SFG (107)
+    const [parentRows] = await db.execute(
+      `SELECT "ItemCode", "ItmsGrpCod" FROM "OITM" WHERE "ItemCode" = ?`,
       [cleanCode]
     );
 
-    if (!existingItems || existingItems.length === 0) {
-      if (!itemName || !String(itemName).trim()) {
+    if (!parentRows || parentRows.length === 0) {
+      return res.status(400).json({
+        error: "Item " + cleanCode + " does not exist in SAP Item Master (OITM). Please create the Item Master in SAP first."
+      });
+    }
+
+    const parentGrp = Number(parentRows[0].ItmsGrpCod);
+    const isValidParent = parentGrp === 102 || parentGrp === 107 || cleanCode.toUpperCase().startsWith("FG") || cleanCode.toUpperCase().startsWith("SFG");
+    if (!isValidParent) {
+      return res.status(400).json({
+        error: "BOM can only be created for Finished Goods (FG) or Semi-Finished Goods (SFG)."
+      });
+    }
+
+    // 2. Verify all Component Lines are strictly Raw Materials (101 / RM%) or Semi-Finished Goods (107 / SFG%)
+    for (const l of lines) {
+      const compCode = String(l.itemCode || "").trim();
+      if (!compCode) {
+        return res.status(400).json({ error: "Every component line must have a valid RM or SFG item code." });
+      }
+      if (compCode === cleanCode) {
+        return res.status(400).json({ error: "Parent item " + cleanCode + " cannot be a component of its own BOM." });
+      }
+      const [compRows] = await db.execute(
+        `SELECT "ItemCode", "ItmsGrpCod" FROM "OITM" WHERE "ItemCode" = ?`,
+        [compCode]
+      );
+      if (!compRows || compRows.length === 0) {
+        return res.status(400).json({ error: "Component " + compCode + " does not exist in SAP Item Master." });
+      }
+      const compGrp = Number(compRows[0].ItmsGrpCod);
+      const isValidComp = compGrp === 101 || compGrp === 107 || compCode.toUpperCase().startsWith("RM") || compCode.toUpperCase().startsWith("SFG");
+      if (!isValidComp) {
         return res.status(400).json({
-          error: "Item " + cleanCode + " does not exist in SAP Item Master. Please provide an Item Name to create it."
+          error: "Component " + compCode + " is not allowed. BOM components must be Raw Materials (RM) or Semi-Finished Goods (SFG) only."
         });
       }
-      const grpCode = Number(itemGroup) || (cleanCode.toUpperCase().startsWith("SFG") ? 107 : 102);
-      await serviceLayer.post("/Items", {
-        ItemCode: cleanCode,
-        ItemName: String(itemName).trim(),
-        ItemsGroupCode: grpCode,
-        InventoryItem: isPhantom ? "tNO" : "tYES",
-        SalesItem: grpCode === 102 ? "tYES" : "tNO",
-        PurchaseItem: "tNO",
-        IsPhantom: isPhantom ? "tYES" : "tNO",
-        IssueMethod: "im_Backflush"
-      });
     }
 
     const totalLineQty = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
@@ -301,6 +317,26 @@ router.put("/bom/:treeCode", async (req, res) => {
   try {
     const { treeCode } = req.params;
     const { quantity, warehouse = "01", lines } = req.body;
+
+    if (Array.isArray(lines)) {
+      for (const l of lines) {
+        const compCode = String(l.itemCode || "").trim();
+        const [compRows] = await db.execute(
+          `SELECT "ItemCode", "ItmsGrpCod" FROM "OITM" WHERE "ItemCode" = ?`,
+          [compCode]
+        );
+        if (!compRows || compRows.length === 0) {
+          return res.status(400).json({ error: "Component " + compCode + " does not exist in SAP Item Master." });
+        }
+        const compGrp = Number(compRows[0].ItmsGrpCod);
+        const isValidComp = compGrp === 101 || compGrp === 107 || compCode.toUpperCase().startsWith("RM") || compCode.toUpperCase().startsWith("SFG");
+        if (!isValidComp) {
+          return res.status(400).json({
+            error: "Component " + compCode + " is not allowed. BOM components must be Raw Materials (RM) or Semi-Finished Goods (SFG) only."
+          });
+        }
+      }
+    }
 
     const payload = {};
     if (quantity !== undefined && Number(quantity) > 0) {

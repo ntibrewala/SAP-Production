@@ -25,14 +25,11 @@ export default function BOM() {
   // Expanded tree nodes (for sub-assemblies inside a formulation)
   const [expandedNodes, setExpandedNodes] = useState({});
 
-  // Add / Edit BOM Modal State
+  // Add / Edit BOM Modal State (BOM only — Item Master is created in SAP)
   const [showModal, setShowModal] = useState(false);
   const [editMode, setEditMode] = useState(false); // false = Add New BOM, true = Edit Existing BOM
-  const [parentMode, setParentMode] = useState("existing"); // "existing" | "new"
   const [formTreeCode, setFormTreeCode] = useState("");
   const [formItemName, setFormItemName] = useState("");
-  const [formItemGroup, setFormItemGroup] = useState(102); // 102 = FG, 107 = SFG
-  const [formIsPhantom, setFormIsPhantom] = useState(false);
   const [formWarehouse, setFormWarehouse] = useState("01");
   const [formLines, setFormLines] = useState([
     { compType: "raw", itemCode: "", quantity: "", warehouse: "01" }
@@ -255,23 +252,16 @@ export default function BOM() {
     };
   };
 
-  // --- Open Modal for Adding a New BOM ---
+  // --- Open Modal for Adding a New BOM (for an existing SAP Item Master) ---
   const openAddBomModal = () => {
     setEditMode(false);
     setModalError(null);
     const defaultWh = warehouses[0]?.code || "01";
     const itemsWithoutBom = availableItems.filter(i => i.has_bom === 0);
-    if (itemsWithoutBom.length > 0) {
-      setParentMode("existing");
-      setFormTreeCode(itemsWithoutBom[0].code);
-      setFormItemName(itemsWithoutBom[0].name);
-    } else {
-      setParentMode("new");
-      setFormTreeCode("");
-      setFormItemName("");
-    }
-    setFormItemGroup(102);
-    setFormIsPhantom(false);
+    const defaultItem = itemsWithoutBom[0] || availableItems[0] || null;
+
+    setFormTreeCode(defaultItem ? defaultItem.code : "");
+    setFormItemName(defaultItem ? defaultItem.name : "");
     setFormWarehouse(defaultWh);
     setFormLines([
       {
@@ -289,7 +279,6 @@ export default function BOM() {
     if (e) e.stopPropagation();
     setEditMode(true);
     setModalError(null);
-    setParentMode("existing");
     const defaultWh = g.warehouse || warehouses[0]?.code || "01";
     setFormTreeCode(g.code);
     setFormItemName(g.name);
@@ -315,7 +304,6 @@ export default function BOM() {
   const handleHeaderWarehouseChange = (newWh) => {
     const oldWh = formWarehouse;
     setFormWarehouse(newWh);
-    // Sync component lines that were set to the previous header warehouse
     setFormLines(prev =>
       prev.map(line =>
         !line.warehouse || line.warehouse === oldWh
@@ -364,7 +352,7 @@ export default function BOM() {
 
     const cleanTreeCode = String(formTreeCode || "").trim();
     if (!cleanTreeCode) {
-      setModalError("Please select or enter a Parent Product Code.");
+      setModalError("Please select a Parent Item from SAP Item Master.");
       return;
     }
 
@@ -406,11 +394,7 @@ export default function BOM() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            createNewItem: parentMode === "new",
             treeCode: cleanTreeCode,
-            itemName: formItemName,
-            itemGroup: Number(formItemGroup),
-            isPhantom: formIsPhantom,
             quantity: totalLineQty,
             warehouse: formWarehouse,
             lines: validLines
@@ -800,7 +784,7 @@ export default function BOM() {
         </div>
       )}
 
-      {/* Add / Edit BOM Modal */}
+      {/* Add / Edit BOM Modal (BOM Only — Item Master is created in SAP) */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-200 max-w-4xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -810,7 +794,7 @@ export default function BOM() {
                   {editMode ? `Edit BOM — ${formTreeCode} (${formItemName})` : "Add New BOM in SAP"}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Posts directly to SAP Business One <code className="bg-gray-100 px-1 py-0.5 rounded">/ProductTrees</code> via Service Layer
+                  Select an existing SAP Item Master (<code className="bg-gray-100 px-1 py-0.5 rounded">OITM</code>) and post its BOM to <code className="bg-gray-100 px-1 py-0.5 rounded">/ProductTrees</code> via Service Layer
                 </p>
               </div>
               <button
@@ -828,50 +812,13 @@ export default function BOM() {
             )}
 
             <form onSubmit={handleSaveBom} className="space-y-5">
-              {/* Parent Product & Warehouse Section */}
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
-                {!editMode && (
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setParentMode("existing");
-                        if (itemsWithoutBom.length > 0) {
-                          setFormTreeCode(itemsWithoutBom[0].code);
-                          setFormItemName(itemsWithoutBom[0].name);
-                        }
-                      }}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                        parentMode === "existing"
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                      }`}
-                    >
-                      Select Existing SAP Item ({itemsWithoutBom.length} without BOM)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setParentMode("new");
-                        setFormTreeCode("");
-                        setFormItemName("");
-                      }}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                        parentMode === "new"
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                      }`}
-                    >
-                      + Create New SAP Item &amp; BOM
-                    </button>
-                  </div>
-                )}
-
+              {/* Parent Product (Existing SAP Item Only) & Warehouse Section */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                 {editMode ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        Parent Product
+                        Parent Product (SAP Item Master)
                       </label>
                       <div className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-800">
                         {formTreeCode} — {formItemName}
@@ -895,11 +842,11 @@ export default function BOM() {
                       </select>
                     </div>
                   </div>
-                ) : parentMode === "existing" ? (
+                ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        Parent Item (FG / SFG in SAP OITM) *
+                        Parent Item from SAP Item Master (FG / SFG) *
                       </label>
                       <select
                         value={formTreeCode}
@@ -911,23 +858,25 @@ export default function BOM() {
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800"
                         required
                       >
-                        <option value="">-- Select Product --</option>
-                        {itemsWithoutBom.length > 0 && (
-                          <optgroup label="Items Without a BOM Yet">
-                            {itemsWithoutBom.map(item => (
+                        <option value="">-- Select FG or Semi-Finished Good --</option>
+                        {itemsWithoutBom.filter(i => !i.is_intermediate).length > 0 && (
+                          <optgroup label="Finished Goods (FG — No BOM Yet)">
+                            {itemsWithoutBom.filter(i => !i.is_intermediate).map(item => (
                               <option key={item.code} value={item.code}>
-                                {item.code} — {item.name} ({item.is_intermediate ? "SFG" : "FG"})
+                                {item.code} — {item.name} (FG)
                               </option>
                             ))}
                           </optgroup>
                         )}
-                        <optgroup label="All FG / SFG Items">
-                          {availableItems.map(item => (
-                            <option key={item.code} value={item.code}>
-                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : ""}
-                            </option>
-                          ))}
-                        </optgroup>
+                        {itemsWithoutBom.filter(i => i.is_intermediate).length > 0 && (
+                          <optgroup label="Semi-Finished Goods (SFG — No BOM Yet)">
+                            {itemsWithoutBom.filter(i => i.is_intermediate).map(item => (
+                              <option key={item.code} value={item.code}>
+                                {item.code} — {item.name} (SFG)
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                     <div>
@@ -947,79 +896,6 @@ export default function BOM() {
                         ))}
                       </select>
                     </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        New Item Code *
-                      </label>
-                      <input
-                        type="text"
-                        value={formTreeCode}
-                        onChange={e => setFormTreeCode(e.target.value)}
-                        placeholder="e.g. FG0017 or SFG0009"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-mono"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        Item Name / Description *
-                      </label>
-                      <input
-                        type="text"
-                        value={formItemName}
-                        onChange={e => setFormItemName(e.target.value)}
-                        placeholder="e.g. JEPE85 or Additive J"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        Item Type *
-                      </label>
-                      <select
-                        value={formItemGroup}
-                        onChange={e => setFormItemGroup(Number(e.target.value))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-                      >
-                        <option value={102}>Finished Good (FG)</option>
-                        <option value={107}>Sub-Assembly (SFG)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        Warehouse *
-                      </label>
-                      <select
-                        value={formWarehouse}
-                        onChange={e => handleHeaderWarehouseChange(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
-                        required
-                      >
-                        {warehouses.map(wh => (
-                          <option key={wh.code} value={wh.code}>
-                            {wh.code} — {wh.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {Number(formItemGroup) === 107 && (
-                      <div className="sm:col-span-4 flex items-center gap-2 pt-1">
-                        <input
-                          id="phantom-chk"
-                          type="checkbox"
-                          checked={formIsPhantom}
-                          onChange={e => setFormIsPhantom(e.target.checked)}
-                          className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                        />
-                        <label htmlFor="phantom-chk" className="text-xs font-medium text-gray-700">
-                          Mark as Phantom Sub-Assembly in SAP Item Master
-                        </label>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
