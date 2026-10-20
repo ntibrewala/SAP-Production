@@ -163,3 +163,16 @@ body::before {
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
+
+/* Raghav Polymers Logo Sizing */
+.rp-logo svg {
+  width: 310px;
+  height: auto;
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .rp-logo svg {
+    width: 230px;
+  }
+}

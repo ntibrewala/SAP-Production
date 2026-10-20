@@ -21,58 +21,76 @@ export default function Layout({ children }) {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-[76px] gap-4">
-            {/* Brand Identity + Division Tag */}
-            <div className="flex items-center gap-4 min-w-0">
-              <Link to="/bom" className="flex items-center shrink-0 group" title="Raghav Polymers Group">
-                <svg viewBox="0 0 530 60" className="h-9 w-auto">
-                  <defs>
-                    <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#c8102e" />
-                      <stop offset="100%" stopColor="#a00d24" />
-                    </linearGradient>
-                  </defs>
-                  <g transform="translate(4,2)">
-                    <polygon points="20,0 40,0 56,56 36,56" fill="#1a1a1a" />
-                    <polygon points="0,0 20,0 36,56 16,56" fill="url(#rg)" />
-                    <polygon points="19,0 22,0 38,56 35,56" fill="rgba(255,255,255,0.85)" />
-                  </g>
-                  <text
-                    x="66"
-                    y="27"
-                    fontFamily="'Montserrat',sans-serif"
-                    fontSize="32"
-                    fontWeight="800"
-                    fill="#1a1a1a"
-                    letterSpacing="0.04em"
-                  >
-                    RAGHAV POLYMERS
-                  </text>
-                  <line x1="66" y1="35" x2="112" y2="35" stroke="#c8102e" strokeWidth="2" />
-                  <text
-                    x="67"
-                    y="53"
-                    fontFamily="'Montserrat',sans-serif"
-                    fontSize="15"
-                    fontWeight="700"
-                    fill="#888580"
-                    letterSpacing="0.28em"
-                  >
-                    GROUP
-                  </text>
-                </svg>
-              </Link>
-
-              <div className="hidden lg:block h-7 w-[1px] bg-black/[0.12] shrink-0" />
-
-              <div className="hidden lg:flex flex-col justify-center">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#006D77]">
-                  JAY EXTRUTECH · SAP PRODUCTION
-                </span>
-                <span className="text-[11px] font-medium text-[#6b6863]">
-                  Formulation &amp; Cost Engineering Portal
-                </span>
-              </div>
-            </div>
+            {/* Raghav Polymers Group Brand Logo */}
+            <Link
+              to="/bom"
+              className="rp-logo flex items-center shrink-0"
+              title="Raghav Polymers Group"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 530 60"
+                width="310"
+                height="36"
+                className="w-[230px] sm:w-[310px] h-auto block"
+              >
+                <defs>
+                  <style>{`
+                    .hl-mark-red { opacity:0; transform:translateX(-40px); animation:hlSlideIn .45s cubic-bezier(.22,1,.36,1) .1s forwards; }
+                    .hl-mark-black { opacity:0; transform:translateX(-30px); animation:hlSlideIn .45s cubic-bezier(.22,1,.36,1) .28s forwards; }
+                    .hl-mark-white { opacity:0; animation:hlFadeIn .25s ease .5s forwards; }
+                    .hl-wordmark { opacity:0; transform:translateX(-14px); animation:hlSlideIn .4s cubic-bezier(.22,1,.36,1) .52s forwards; }
+                    .hl-rule { opacity:0; transform:scaleX(0); transform-origin:left; animation:hlScaleIn .35s cubic-bezier(.22,1,.36,1) .68s forwards; }
+                    .hl-desc { opacity:0; transform:translateX(-10px); animation:hlSlideIn .35s cubic-bezier(.22,1,.36,1) .76s forwards; }
+                    @keyframes hlSlideIn { to { opacity:1; transform:translateX(0); } }
+                    @keyframes hlFadeIn { to { opacity:1; } }
+                    @keyframes hlScaleIn { to { opacity:1; transform:scaleX(1); } }
+                  `}</style>
+                  <linearGradient id="hlg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#c8102e" />
+                    <stop offset="100%" stopColor="#a00d24" />
+                  </linearGradient>
+                </defs>
+                <g transform="translate(4,2)">
+                  <polygon className="hl-mark-red" points="0,0 20,0 36,56 16,56" fill="url(#hlg)" />
+                  <polygon className="hl-mark-black" points="20,0 40,0 56,56 36,56" fill="#1a1a1a" />
+                  <polygon className="hl-mark-white" points="19,0 22,0 38,56 35,56" fill="#ffffff" />
+                </g>
+                <text
+                  className="hl-wordmark"
+                  x="66"
+                  y="27"
+                  fontFamily="'Montserrat',sans-serif"
+                  fontSize="32"
+                  fontWeight="800"
+                  fill="#1a1a1a"
+                  letterSpacing="0.04em"
+                >
+                  RAGHAV POLYMERS
+                </text>
+                <line
+                  className="hl-rule"
+                  x1="66"
+                  y1="35"
+                  x2="112"
+                  y2="35"
+                  stroke="#c8102e"
+                  strokeWidth="2"
+                />
+                <text
+                  className="hl-desc"
+                  x="67"
+                  y="53"
+                  fontFamily="'Montserrat',sans-serif"
+                  fontSize="15"
+                  fontWeight="700"
+                  fill="#888580"
+                  letterSpacing="0.28em"
+                >
+                  GROUP
+                </text>
+              </svg>
+            </Link>
 
             {/* Desktop Navigation Tabs */}
             <nav className="hidden md:flex items-center gap-2">
@@ -135,18 +153,22 @@ export default function Layout({ children }) {
       </main>
 
       {/* Minimal Architectural Footer */}
-      <footer className="border-t border-black/[0.08] bg-[#f4f2ef] py-5 px-4 sm:px-6 lg:px-8 mt-auto">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-[#6b6863]">
-          <div className="flex items-center gap-2 font-semibold uppercase tracking-[0.1em] text-[#1a1a1a]">
-            <span className="inline-block w-2 h-2 bg-[#c8102e]" />
+      <footer className="border-t border-black/[0.08] bg-[#f4f2ef] mt-auto">
+        <div className="max-w-7xl mx-auto py-5 px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-[#6b6863]">
+          <div className="flex items-center gap-2.5 font-bold uppercase tracking-[0.12em] text-[#1a1a1a]">
+            <span className="inline-block w-2.5 h-2.5 bg-[#c8102e]" />
             Raghav Polymers Group
-            <span className="text-[#8a8780] font-normal">·</span>
-            <span className="text-[#006D77]">Jay Extrutech Pvt. Ltd.</span>
           </div>
           <div className="font-mono-code text-[11px] text-[#8a8780]">
             SAP Business One HANA · OITM &amp; OITT Service Layer Integration
           </div>
         </div>
+        <div
+          style={{
+            height: "4px",
+            background: "linear-gradient(to right, #c8102e 83%, #1a1a1a 83%)"
+          }}
+        />
       </footer>
     </div>
   );
