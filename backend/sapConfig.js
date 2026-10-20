@@ -47,6 +47,7 @@ function loadSAPConfig(forceReload = false) {
   const hanaSection = parsed.HANA || {};
   const sapSection = parsed.SAP || {};
   const slSection = parsed.ServiceLayer || {};
+  const jaySection = parsed.JAY_EXTRUTECH || sapSection.JAY_EXTRUTECH || {};
   const roConfig = hanaSection.ReadOnlyConfig || {};
   const rwConfig = hanaSection.ReadWrite || {};
 
@@ -88,14 +89,29 @@ function loadSAPConfig(forceReload = false) {
     "https://10.10.0.12:50000/b1s/v1"
   ).trim().replace(/\/+$/, "");
 
+  const isJay = schema.toUpperCase() === "JAY_EXTRUTECH";
+
   const sapUser = (
     process.env.SAP_USER ||
+    (isJay && (
+      sapSection.JayUserName ||
+      sapSection.JAY_EXTRUTECH_UserName ||
+      jaySection.UserName ||
+      parsed.JayUserName
+    )) ||
     sapSection.UserName ||
     "manager"
   ).trim();
 
   const sapPassword = (
     process.env.SAP_PASSWORD ||
+    (isJay && (
+      sapSection.JayPassword ||
+      sapSection.JAY_EXTRUTECH_Password ||
+      jaySection.Password ||
+      (sapSection.Passwords && sapSection.Passwords.JAY_EXTRUTECH) ||
+      parsed.JayPassword
+    )) ||
     sapSection.Password ||
     ""
   ).trim();
