@@ -75,7 +75,7 @@ async function login(force = false) {
     return;
   }
 
-  const cfg = loadSAPConfig();
+  const cfg = loadSAPConfig(true);
   const loginUrl = `${cfg.ServiceLayer.url}/Login`;
   const payload = {
     CompanyDB: cfg.companyDB,

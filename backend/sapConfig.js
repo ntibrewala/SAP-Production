@@ -14,8 +14,8 @@ const CANDIDATE_PATHS = [
 
 let cachedConfig = null;
 
-function loadSAPConfig() {
-  if (cachedConfig) return cachedConfig;
+function loadSAPConfig(forceReload = false) {
+  if (cachedConfig && !forceReload) return cachedConfig;
 
   let rawData = null;
   let loadedPath = null;
