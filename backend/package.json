@@ -1,0 +1,28 @@
+{
+  "name": "sap-production-backend",
+  "version": "1.0.0",
+  "description": "FactoryFlow SAP HANA & Service Layer Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "sap",
+    "b1",
+    "hana",
+    "service-layer",
+    "bom"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@sap/hana-client": "^2.27.24",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3"
+  }
+}
