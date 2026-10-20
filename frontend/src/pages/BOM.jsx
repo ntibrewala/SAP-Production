@@ -429,70 +429,76 @@ export default function BOM() {
 
       return (
         <Fragment key={`${b.id}_lvl${level}`}>
-          <tr className={`hover:bg-blue-50/60 border-b transition-colors ${level === 0 ? "bg-white" : "bg-slate-50/80"}`}>
-            <td className="px-4 py-3 font-medium text-sm md:text-base">
-              <div style={{ marginLeft: `${level * 2}rem` }} className="flex items-center gap-2 flex-wrap">
+          <tr
+            className={`border-b border-black/[0.06] transition-colors ${
+              level === 0
+                ? "bg-white hover:bg-[#faf9f7]"
+                : "bg-[#faf9f7] hover:bg-[#f4f2ef]/80"
+            }`}
+          >
+            <td className="px-4 py-3 text-sm">
+              <div style={{ marginLeft: `${level * 1.75}rem` }} className="flex items-center gap-2.5 flex-wrap">
                 {b.type === "good" && (
                   <button
                     onClick={() => toggleExpand(b.child_good_id)}
                     title={isNodeExpanded ? "Collapse Sub-Assembly" : "Expand Sub-Assembly"}
-                    className="w-6 h-6 flex items-center justify-center text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-full font-bold text-sm transition-colors"
+                    className="w-5 h-5 flex items-center justify-center text-white bg-[#006D77] hover:bg-[#00555d] rounded-[3px] font-bold text-xs transition-colors cursor-pointer"
                   >
                     {isNodeExpanded ? "−" : "+"}
                   </button>
                 )}
-                <span className="font-mono text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                <span className="font-mono-code text-[11.5px] font-semibold px-2 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.09]">
                   {b.code}
                 </span>
-                <span className={level > 0 ? "text-gray-700" : "text-gray-900 font-semibold"}>
+                <span className={level > 0 ? "text-[#444444] font-medium" : "text-[#1a1a1a] font-semibold"}>
                   {b.name}
                 </span>
                 {b.warehouse && (
-                  <span className="text-[11px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">
+                  <span className="font-mono-code text-[10.5px] font-medium bg-[#faf9f7] text-[#6b6863] px-1.5 py-0.5 rounded-[3px] border border-black/[0.08]">
                     WH: {b.warehouse}
                   </span>
                 )}
                 {b.type === "good" && (
-                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium border border-purple-200">
-                    {b.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
+                  <span className="text-[10px] font-bold uppercase tracking-[0.06em] bg-[#006D77]/10 text-[#006D77] px-2 py-0.5 rounded-[3px] border border-[#006D77]/25">
+                    {b.phantom === "Y" ? "Phantom SFG" : "Sub-Assembly"}
                   </span>
                 )}
                 {b.type === "good" && !hasSubItems && (
-                  <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.06em] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-[3px] border border-amber-200">
                     No BOM in SAP
                   </span>
                 )}
               </div>
             </td>
 
-            <td className="px-4 py-3 text-right">
-              <span className={level > 0 ? "text-gray-600 text-sm" : "font-semibold text-gray-900"}>
-                {b.actualQty.toFixed(4)} <span className="text-xs text-gray-400 font-normal">{b.uom}</span>
+            <td className="px-4 py-3 text-right font-mono-code text-xs sm:text-sm">
+              <span className={level > 0 ? "text-[#6b6863]" : "font-semibold text-[#1a1a1a]"}>
+                {b.actualQty.toFixed(4)} <span className="text-[11px] text-[#8a8780] font-normal">{b.uom}</span>
                 {level > 0 && Math.abs(b.actualQty - b.rawQty) > 0.0001 && (
-                  <span className="ml-1 text-xs text-gray-400" title="SAP Sub-Assembly Recipe Qty">
+                  <span className="ml-1 text-[11px] text-[#8a8780]" title="SAP Sub-Assembly Recipe Qty">
                     (Recipe: {b.rawQty.toFixed(4)})
                   </span>
                 )}
               </span>
             </td>
 
-            <td className="px-4 py-3 text-right font-medium text-blue-600 bg-blue-50/20">
+            <td className="px-4 py-3 text-right font-mono-code font-semibold text-xs sm:text-sm text-[#444444] bg-[#faf9f7]/60">
               {(b.effectiveShare * 100).toFixed(2)}%
             </td>
 
             {/* Production Standard Cost Calculation */}
-            <td className="px-4 py-3 text-right text-indigo-700 text-sm bg-indigo-50/15">
+            <td className="px-4 py-3 text-right font-mono-code text-xs sm:text-sm text-[#444444] bg-[#c8102e]/[0.02]">
               ₹{b.stdUnitRate.toFixed(2)}
             </td>
-            <td className="px-4 py-3 text-right font-semibold text-indigo-900 text-sm bg-indigo-50/30">
+            <td className="px-4 py-3 text-right font-mono-code font-bold text-xs sm:text-sm text-[#c8102e] bg-[#c8102e]/[0.05]">
               ₹{b.stdCostPerKg.toFixed(2)}
             </td>
 
             {/* Last Purchase Price Calculation */}
-            <td className="px-4 py-3 text-right text-blue-700 text-sm bg-blue-50/15">
+            <td className="px-4 py-3 text-right font-mono-code text-xs sm:text-sm text-[#444444] bg-[#006D77]/[0.02]">
               ₹{b.purUnitRate.toFixed(2)}
             </td>
-            <td className="px-4 py-3 text-right font-semibold text-blue-900 text-sm bg-blue-50/30">
+            <td className="px-4 py-3 text-right font-mono-code font-bold text-xs sm:text-sm text-[#006D77] bg-[#006D77]/[0.05]">
               ₹{b.purCostPerKg.toFixed(2)}
             </td>
           </tr>
@@ -507,33 +513,78 @@ export default function BOM() {
 
   const finishedGoodsList = goods.filter(g => g.is_intermediate === 0);
   const subAssembliesList = goods.filter(g => g.is_intermediate === 1);
-  const itemsWithoutBom = availableItems.filter(i => i.has_bom === 0);
   const sfgOptions = availableItems.filter(i => i.is_intermediate === 1 && i.code !== formTreeCode);
 
   const modalTotalQty = formLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0), 0);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-20">
-      {/* Top Header & Controls */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">SAP Bill of Materials (BOM)</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Calculates formulation cost per Kg based on <span className="font-semibold text-indigo-700">Production Standard Cost</span> &amp; <span className="font-semibold text-blue-700">Last Purchase Price</span>
-          </p>
+    <div className="space-y-6 pb-20">
+      {/* Architectural Section Header & Stats */}
+      <div className="rp-card p-6 sm:p-7">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-black/[0.08]">
+          <div>
+            <div className="sec-label mb-2">SAP HANA · PRODUCT TREES (OITT)</div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1a1a1a] tracking-[-0.02em]">
+              Formulations &amp; <span className="italic-accent">Costing</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-[#6b6863] mt-1.5 max-w-2xl">
+              Multi-level formulation engine normalizing batch recipes to 1.0000 Kg unit cost across{" "}
+              <span className="font-semibold text-[#c8102e]">Production Standard Cost</span> and{" "}
+              <span className="font-semibold text-[#006D77]">Last Purchase Price</span>.
+            </p>
+          </div>
+
+          {/* Mini Architectural Stats Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-black/[0.08] border border-black/[0.08] rounded-[4px] overflow-hidden shrink-0">
+            <div className="bg-[#faf9f7] px-4 py-2.5">
+              <div className="font-playfair text-xl font-bold text-[#1a1a1a] leading-tight">
+                {goods.length}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#6b6863]">
+                Active BOMs
+              </div>
+            </div>
+            <div className="bg-[#faf9f7] px-4 py-2.5">
+              <div className="font-playfair text-xl font-bold text-[#c8102e] leading-tight">
+                {finishedGoodsList.length}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#6b6863]">
+                Finished Goods
+              </div>
+            </div>
+            <div className="bg-[#faf9f7] px-4 py-2.5">
+              <div className="font-playfair text-xl font-bold text-[#006D77] leading-tight">
+                {subAssembliesList.length}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#6b6863]">
+                Sub-Assemblies
+              </div>
+            </div>
+            <div className="bg-[#faf9f7] px-4 py-2.5">
+              <div className="font-playfair text-xl font-bold text-[#1a1a1a] leading-tight">
+                {rawMaterials.length}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#6b6863]">
+                Raw Materials
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Dropdown for Finished Goods & All */}
-          <div className="flex items-center gap-2">
-            <label htmlFor="fg-filter" className="text-sm font-medium text-gray-700 whitespace-nowrap">
-              Filter Product:
+        {/* Filter & Action Toolbar */}
+        <div className="pt-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label
+              htmlFor="fg-filter"
+              className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#6b6863] whitespace-nowrap"
+            >
+              Filter Formulation:
             </label>
             <select
               id="fg-filter"
               value={selectedFilter}
               onChange={handleFilterChange}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800 shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-none min-w-[220px]"
+              className="border border-black/[0.15] rounded-[4px] px-3.5 py-2 text-xs sm:text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none min-w-[260px]"
             >
               <option value="ALL">All BOMs ({goods.length})</option>
               <option value="ALL_FG">All Finished Goods ({finishedGoodsList.length})</option>
@@ -557,41 +608,33 @@ export default function BOM() {
             </select>
           </div>
 
-          <button
-            onClick={openAddBomModal}
-            className="px-4 py-2 bg-blue-600 text-white shadow-sm text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
-          >
-            + Add BOM
-          </button>
-
-          <button
-            onClick={expandAll}
-            className="px-3.5 py-2 bg-blue-50 text-blue-700 border border-blue-200 shadow-xs text-sm font-medium rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
-          >
-            Expand All
-          </button>
-          <button
-            onClick={collapseAll}
-            className="px-3.5 py-2 bg-white text-gray-700 border border-gray-300 shadow-xs text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            Collapse All
-          </button>
-          <button
-            onClick={fetchData}
-            className="px-3.5 py-2 bg-gray-800 text-white shadow-xs text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors cursor-pointer"
-          >
-            Refresh SAP Data
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button onClick={openAddBomModal} className="rp-btn rp-btn-red">
+              + Add BOM
+            </button>
+            <button onClick={expandAll} className="rp-btn rp-btn-outline">
+              Expand All
+            </button>
+            <button onClick={collapseAll} className="rp-btn rp-btn-outline">
+              Collapse All
+            </button>
+            <button onClick={fetchData} className="rp-btn rp-btn-dark">
+              Refresh SAP Data
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Status & Error Banners */}
       {statusMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between text-sm font-medium">
-          <span>✓ {statusMsg}</span>
+        <div className="bg-emerald-950/[0.04] border-l-4 border-emerald-600 border border-emerald-600/20 text-[#1a1a1a] px-4 py-3 rounded-[4px] flex items-center justify-between text-xs sm:text-sm font-medium">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
+            <span>{statusMsg}</span>
+          </div>
           <button
             onClick={() => setStatusMsg(null)}
-            className="text-emerald-600 hover:text-emerald-900 font-bold ml-4"
+            className="text-[#6b6863] hover:text-[#1a1a1a] font-bold ml-4 cursor-pointer"
           >
             ✕
           </button>
@@ -599,20 +642,23 @@ export default function BOM() {
       )}
 
       {loading && (
-        <div className="bg-white p-12 rounded-xl shadow-sm border border-gray-200 text-center text-gray-500">
-          Loading BOMs from SAP Business One...
+        <div className="rp-card p-14 text-center">
+          <div className="inline-block w-6 h-6 border-2 border-[#c8102e] border-t-transparent rounded-full animate-spin mb-3" />
+          <div className="text-xs font-bold uppercase tracking-[0.12em] text-[#6b6863]">
+            Loading Formulations from SAP Business One HANA...
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center justify-between">
-          <div>
-            <span className="font-semibold">Error loading SAP BOMs:</span> {error}
+        <div className="bg-[#c8102e]/[0.05] border-l-4 border-[#c8102e] border border-[#c8102e]/20 text-[#1a1a1a] p-4 rounded-[4px] flex items-center justify-between">
+          <div className="text-xs sm:text-sm">
+            <span className="font-bold uppercase tracking-[0.06em] text-[#c8102e] mr-2">
+              SAP Error:
+            </span>
+            {error}
           </div>
-          <button
-            onClick={fetchData}
-            className="px-3 py-1 bg-red-600 text-white text-xs font-medium rounded hover:bg-red-700"
-          >
+          <button onClick={fetchData} className="rp-btn rp-btn-red py-1.5 px-3">
             Retry
           </button>
         </div>
@@ -620,125 +666,158 @@ export default function BOM() {
 
       {/* Accordion List of Products */}
       {!loading && !error && (
-        <div className="space-y-3">
+        <div className="space-y-3.5">
           {filteredGoods.length === 0 ? (
-            <div className="bg-white p-8 rounded-xl border border-gray-200 text-center text-gray-500">
+            <div className="rp-card p-10 text-center text-sm text-[#6b6863]">
               No BOMs found matching the selected filter.
             </div>
           ) : (
             filteredGoods.map(g => {
               const isSelected = !!expandedAccordions[g.id];
               const bomData = getBOMCostAndItems(g.id);
+              const isSfg = g.is_intermediate === 1;
 
               return (
                 <div
                   key={g.id}
-                  className={`bg-white rounded-xl shadow-sm border transition-all duration-200 overflow-hidden ${
-                    isSelected ? "border-blue-300 ring-1 ring-blue-300" : "border-gray-200"
+                  className={`rp-card overflow-hidden transition-all duration-200 border-l-[3px] ${
+                    isSfg ? "border-l-[#006D77]" : "border-l-[#c8102e]"
+                  } ${
+                    isSelected
+                      ? "ring-1 ring-black/[0.12] shadow-[0_6px_20px_rgba(0,0,0,0.06)]"
+                      : "hover:shadow-[0_4px_14px_rgba(0,0,0,0.05)]"
                   }`}
                 >
                   {/* Accordion Header */}
                   <div
                     onClick={() => toggleAccordion(g.id)}
-                    className="w-full p-4 flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors gap-3"
+                    className="w-full px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between cursor-pointer hover:bg-[#faf9f7] transition-colors gap-4"
                   >
-                    <div className="flex flex-wrap items-center gap-3 w-full justify-between">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className={`transform transition-transform ${isSelected ? "rotate-90 text-blue-600" : "text-gray-400"}`}>
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-
-                        <span className="font-mono text-sm font-bold px-2.5 py-1 rounded bg-blue-50 text-blue-800 border border-blue-200">
-                          {g.code}
-                        </span>
-
-                        <span className="font-semibold text-lg text-gray-800">{g.name}</span>
-
-                        {g.warehouse && (
-                          <span className="text-xs font-mono bg-gray-100 text-gray-700 px-2 py-0.5 rounded border border-gray-200">
-                            WH: {g.warehouse}
-                          </span>
-                        )}
-
-                        {g.is_intermediate === 1 && (
-                          <span className="text-xs bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-medium border border-purple-200">
-                            {g.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Stats Block: Production Standard Cost & Purchase Price Cost (No Batch Cost) */}
-                      <div className="flex items-center gap-5 border-l-2 pl-4 border-gray-200">
-                        <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-indigo-600 uppercase font-bold tracking-wider">
-                            Prod. Std Cost / Kg
-                          </div>
-                          <div className="font-bold text-indigo-800 text-sm sm:text-base">
-                            ₹{bomData.stdUnitCost.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-blue-600 uppercase font-bold tracking-wider">
-                            Purchase Price Cost / Kg
-                          </div>
-                          <div className="font-bold text-blue-800 text-sm sm:text-base">
-                            ₹{bomData.purUnitCost.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="text-left">
-                          <div className="text-[10px] sm:text-xs text-gray-500 uppercase font-bold tracking-wider">
-                            BOM Qty
-                          </div>
-                          <div className="font-bold text-emerald-600 text-sm sm:text-base">
-                            {bomData.totalRawQty.toFixed(3)}
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => openEditBomModal(g, e)}
-                          className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                    <div className="flex flex-wrap items-center gap-3 min-w-0">
+                      <div
+                        className={`w-6 h-6 rounded-[3px] flex items-center justify-center transition-transform ${
+                          isSelected
+                            ? "rotate-90 bg-[#c8102e] text-white"
+                            : "bg-[#f4f2ef] text-[#6b6863]"
+                        }`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-3.5 w-3.5"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
                         >
-                          Edit BOM
-                        </button>
+                          <path
+                            fillRule="evenodd"
+                            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
                       </div>
+
+                      <span
+                        className={`font-mono-code text-xs font-bold px-2.5 py-1 rounded-[3px] border ${
+                          isSfg
+                            ? "bg-[#006D77]/[0.08] text-[#006D77] border-[#006D77]/20"
+                            : "bg-[#c8102e]/[0.07] text-[#c8102e] border-[#c8102e]/20"
+                        }`}
+                      >
+                        {g.code}
+                      </span>
+
+                      <span className="font-bold text-base sm:text-lg text-[#1a1a1a] tracking-[-0.01em]">
+                        {g.name}
+                      </span>
+
+                      {g.warehouse && (
+                        <span className="font-mono-code text-[11px] font-semibold bg-[#f4f2ef] text-[#444444] px-2 py-0.5 rounded-[3px] border border-black/[0.08]">
+                          WH: {g.warehouse}
+                        </span>
+                      )}
+
+                      {isSfg && (
+                        <span className="text-[10px] font-bold uppercase tracking-[0.08em] bg-[#006D77]/10 text-[#006D77] px-2.5 py-0.5 rounded-[3px] border border-[#006D77]/25">
+                          {g.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Right Metrics Strip */}
+                    <div className="flex flex-wrap items-center gap-4 sm:gap-6 pt-3 lg:pt-0 border-t lg:border-t-0 lg:border-l border-black/[0.08] lg:pl-6 shrink-0">
+                      <div className="text-left">
+                        <div className="text-[9.5px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
+                          Prod. Std Cost / Kg
+                        </div>
+                        <div className="font-mono-code font-bold text-[#c8102e] text-sm sm:text-base">
+                          ₹{bomData.stdUnitCost.toFixed(2)}
+                        </div>
+                      </div>
+
+                      <div className="h-7 w-[1px] bg-black/[0.08] hidden sm:block" />
+
+                      <div className="text-left">
+                        <div className="text-[9.5px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
+                          Purchase Cost / Kg
+                        </div>
+                        <div className="font-mono-code font-bold text-[#006D77] text-sm sm:text-base">
+                          ₹{bomData.purUnitCost.toFixed(2)}
+                        </div>
+                      </div>
+
+                      <div className="h-7 w-[1px] bg-black/[0.08] hidden sm:block" />
+
+                      <div className="text-left">
+                        <div className="text-[9.5px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
+                          Recipe Qty
+                        </div>
+                        <div className="font-mono-code font-bold text-[#1a1a1a] text-sm sm:text-base">
+                          {bomData.totalRawQty.toFixed(3)} <span className="text-xs font-normal text-[#8a8780]">Kg</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => openEditBomModal(g, e)}
+                        className="rp-btn rp-btn-outline py-1.5 px-3 text-[10.5px]"
+                      >
+                        Edit BOM
+                      </button>
                     </div>
                   </div>
 
                   {/* Accordion Body */}
                   {isSelected && (
-                    <div className="border-t border-gray-100 bg-gray-50 p-4 sm:p-5">
-                      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-xs overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
+                    <div className="border-t border-black/[0.08] bg-[#faf9f7] p-4 sm:p-5">
+                      <div className="bg-white rounded-[4px] border border-black/[0.08] overflow-hidden overflow-x-auto">
+                        <table className="min-w-full divide-y divide-black/[0.08]">
+                          <thead className="bg-[#f4f2ef]">
                             <tr>
-                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              <th className="px-4 py-3 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                                 Component (SAP Code &amp; Description)
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                                 BOM Qty
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                                 Normalized %
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-700 uppercase tracking-wider bg-indigo-50/40">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.04]">
                                 Prod. Std Rate
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-900 uppercase tracking-wider bg-indigo-50/70">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.08]">
                                 Prod. Std Cost / Kg
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-blue-700 uppercase tracking-wider bg-blue-50/40">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em] bg-[#006D77]/[0.04]">
                                 Last Pur. Rate
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-blue-900 uppercase tracking-wider bg-blue-50/70">
+                              <th className="px-4 py-3 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em] bg-[#006D77]/[0.08]">
                                 Purchase Cost / Kg
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
+                          <tbody className="bg-white divide-y divide-black/[0.06]">
                             {bomData.items.length === 0 ? (
                               <tr>
-                                <td colSpan="7" className="p-8 text-center text-gray-500 italic">
+                                <td colSpan="7" className="p-8 text-center text-[#6b6863] italic text-sm">
                                   No components found for this BOM in SAP.
                                 </td>
                               </tr>
@@ -747,27 +826,27 @@ export default function BOM() {
                             )}
                           </tbody>
                           {bomData.items.length > 0 && (
-                            <tfoot className="bg-gray-50 border-t border-gray-200">
+                            <tfoot className="bg-[#1c1c1c] text-white">
                               <tr>
-                                <td className="px-4 py-3.5 text-right font-bold text-gray-800">
-                                  Cost / Kg Summary:
+                                <td className="px-4 py-3.5 text-right text-[11px] font-bold uppercase tracking-[0.1em] text-[#ece8e2]">
+                                  Cost / Kg Summary
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-emerald-700 text-base">
+                                <td className="px-4 py-3.5 text-right font-mono-code font-bold text-white text-sm">
                                   {bomData.totalRawQty.toFixed(4)} Kg
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-blue-700">
+                                <td className="px-4 py-3.5 text-right font-mono-code font-bold text-[#ece8e2] text-sm">
                                   100.00%
                                 </td>
-                                <td className="px-4 py-3.5 text-right text-xs font-medium text-indigo-500 bg-indigo-50/30">
+                                <td className="px-4 py-3.5 text-right text-xs text-[#8a8780]">
                                   —
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-indigo-900 text-base bg-indigo-50/60">
+                                <td className="px-4 py-3.5 text-right font-mono-code font-bold text-[#ff6b81] text-sm sm:text-base bg-white/[0.04]">
                                   ₹{bomData.stdUnitCost.toFixed(2)} / Kg
                                 </td>
-                                <td className="px-4 py-3.5 text-right text-xs font-medium text-blue-500 bg-blue-50/30">
+                                <td className="px-4 py-3.5 text-right text-xs text-[#8a8780]">
                                   —
                                 </td>
-                                <td className="px-4 py-3.5 text-right font-bold text-blue-900 text-base bg-blue-50/60">
+                                <td className="px-4 py-3.5 text-right font-mono-code font-bold text-[#4fd1c5] text-sm sm:text-base bg-white/[0.04]">
                                   ₹{bomData.purUnitCost.toFixed(2)} / Kg
                                 </td>
                               </tr>
@@ -786,52 +865,57 @@ export default function BOM() {
 
       {/* Add / Edit BOM Modal (BOM Only — Item Master is created in SAP) */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 max-w-4xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4 overflow-y-auto">
+          <div className="bg-white rounded-[6px] shadow-2xl border border-black/[0.12] border-t-[3px] border-t-[#c8102e] max-w-4xl w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-black/[0.08] pb-4">
               <div>
-                <h3 className="text-xl font-bold text-gray-800">
-                  {editMode ? `Edit BOM — ${formTreeCode} (${formItemName})` : "Add New BOM in SAP"}
+                <div className="sec-label mb-1">
+                  {editMode ? "SAP SERVICE LAYER · UPDATE BOM" : "SAP SERVICE LAYER · NEW BOM"}
+                </div>
+                <h3 className="text-xl font-extrabold text-[#1a1a1a] tracking-[-0.01em]">
+                  {editMode ? `Edit BOM — ${formTreeCode} (${formItemName})` : "Configure Product Tree (BOM)"}
                 </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Select an existing SAP Item Master (<code className="bg-gray-100 px-1 py-0.5 rounded">OITM</code>) and post its BOM to <code className="bg-gray-100 px-1 py-0.5 rounded">/ProductTrees</code> via Service Layer
+                <p className="text-xs text-[#6b6863] mt-0.5">
+                  Select an existing SAP Item Master (<code className="font-mono-code bg-[#f4f2ef] px-1.5 py-0.5 rounded-[3px]">OITM</code>) and post its formulation to{" "}
+                  <code className="font-mono-code bg-[#f4f2ef] px-1.5 py-0.5 rounded-[3px]">/ProductTrees</code>
                 </p>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-700 text-lg font-bold"
+                className="w-8 h-8 rounded-[4px] bg-[#f4f2ef] hover:bg-[#ece8e2] text-[#1a1a1a] flex items-center justify-center font-bold text-sm cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             {modalError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-                <span className="font-semibold">Error:</span> {modalError}
+              <div className="bg-[#c8102e]/[0.06] border-l-4 border-[#c8102e] text-[#1a1a1a] px-4 py-3 rounded-[4px] text-xs sm:text-sm">
+                <span className="font-bold text-[#c8102e] uppercase tracking-[0.06em] mr-1.5">Error:</span>
+                {modalError}
               </div>
             )}
 
             <form onSubmit={handleSaveBom} className="space-y-5">
               {/* Parent Product (Existing SAP Item Only) & Warehouse Section */}
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <div className="bg-[#faf9f7] p-4 rounded-[4px] border border-black/[0.08]">
                 {editMode ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                      <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
                         Parent Product (SAP Item Master)
                       </label>
-                      <div className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold text-gray-800">
-                        {formTreeCode} — {formItemName}
+                      <div className="px-3.5 py-2 bg-white border border-black/[0.12] rounded-[4px] text-sm font-bold text-[#1a1a1a] font-mono-code">
+                        {formTreeCode} — <span className="font-sans font-semibold">{formItemName}</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                      <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
                         BOM Header Warehouse *
                       </label>
                       <select
                         value={formWarehouse}
                         onChange={e => handleHeaderWarehouseChange(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
+                        className="w-full border border-black/[0.15] rounded-[4px] px-3 py-2 text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
                         required
                       >
                         {warehouses.map(wh => (
@@ -845,7 +929,7 @@ export default function BOM() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                      <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
                         Parent Item from SAP Item Master (FG / SFG) *
                       </label>
                       <select
@@ -867,7 +951,7 @@ export default function BOM() {
                             setFormLines(existingLines);
                           }
                         }}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800"
+                        className="w-full border border-black/[0.15] rounded-[4px] px-3 py-2 text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
                         required
                       >
                         <option value="">-- Select FG or Semi-Finished Good --</option>
@@ -888,13 +972,13 @@ export default function BOM() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">
+                      <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
                         BOM Header Warehouse *
                       </label>
                       <select
                         value={formWarehouse}
                         onChange={e => handleHeaderWarehouseChange(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-800"
+                        className="w-full border border-black/[0.15] rounded-[4px] px-3 py-2 text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
                         required
                       >
                         {warehouses.map(wh => (
@@ -911,54 +995,55 @@ export default function BOM() {
               {/* BOM Component Lines */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-bold text-gray-800">
-                    BOM Components (Total Recipe Qty: <span className="text-emerald-700">{modalTotalQty.toFixed(4)} Kg</span>)
+                  <label className="text-xs font-bold uppercase tracking-[0.08em] text-[#1a1a1a]">
+                    Formulation Components (Total Recipe Qty:{" "}
+                    <span className="font-mono-code text-[#c8102e]">{modalTotalQty.toFixed(4)} Kg</span>)
                   </label>
                   <button
                     type="button"
                     onClick={handleAddLine}
-                    className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-semibold cursor-pointer"
+                    className="rp-btn rp-btn-outline py-1.5 px-3 text-[10.5px]"
                   >
                     + Add Component Line
                   </button>
                 </div>
 
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50">
+                <div className="border border-black/[0.1] rounded-[4px] overflow-hidden">
+                  <table className="min-w-full divide-y divide-black/[0.08] text-sm">
+                    <thead className="bg-[#f4f2ef]">
                       <tr>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Type
                         </th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Component Item
                         </th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Warehouse
                         </th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           BOM Qty (Kg)
                         </th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Share %
                         </th>
-                        <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-600 uppercase">
+                        <th className="px-3 py-2.5 text-center text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Remove
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
+                    <tbody className="divide-y divide-black/[0.06] bg-white">
                       {formLines.map((line, idx) => {
                         const qty = parseFloat(line.quantity) || 0;
                         const pct = modalTotalQty > 0 ? (qty / modalTotalQty) * 100 : 0;
 
                         return (
-                          <tr key={idx}>
+                          <tr key={idx} className="hover:bg-[#faf9f7]">
                             <td className="px-3 py-2">
                               <select
                                 value={line.compType}
                                 onChange={e => handleLineChange(idx, "compType", e.target.value)}
-                                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
+                                className="border border-black/[0.15] rounded-[4px] px-2.5 py-1.5 text-xs bg-white font-semibold text-[#1a1a1a]"
                               >
                                 <option value="raw">Raw Material (RM)</option>
                                 <option value="sfg">Sub-Assembly (SFG)</option>
@@ -968,7 +1053,7 @@ export default function BOM() {
                               <select
                                 value={line.itemCode}
                                 onChange={e => handleLineChange(idx, "itemCode", e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
+                                className="w-full border border-black/[0.15] rounded-[4px] px-2.5 py-1.5 text-xs bg-white font-medium text-[#1a1a1a]"
                               >
                                 <option value="">-- Select Component --</option>
                                 {line.compType === "raw"
@@ -988,7 +1073,7 @@ export default function BOM() {
                               <select
                                 value={line.warehouse || formWarehouse || "01"}
                                 onChange={e => handleLineChange(idx, "warehouse", e.target.value)}
-                                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
+                                className="border border-black/[0.15] rounded-[4px] px-2.5 py-1.5 text-xs bg-white font-medium text-[#1a1a1a]"
                               >
                                 {warehouses.map(wh => (
                                   <option key={wh.code} value={wh.code}>
@@ -1005,11 +1090,11 @@ export default function BOM() {
                                 value={line.quantity}
                                 onChange={e => handleLineChange(idx, "quantity", e.target.value)}
                                 placeholder="0.0000"
-                                className="w-28 border border-gray-300 rounded-lg px-2.5 py-1.5 text-right text-xs font-semibold"
+                                className="w-28 border border-black/[0.15] rounded-[4px] px-2.5 py-1.5 text-right text-xs font-mono-code font-bold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
                                 required
                               />
                             </td>
-                            <td className="px-3 py-2 text-right font-medium text-blue-600 text-xs">
+                            <td className="px-3 py-2 text-right font-mono-code font-semibold text-[#c8102e] text-xs">
                               {pct.toFixed(2)}%
                             </td>
                             <td className="px-3 py-2 text-center">
@@ -1017,7 +1102,7 @@ export default function BOM() {
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveLine(idx)}
-                                  className="text-red-500 hover:text-red-700 font-bold text-xs px-2 py-1"
+                                  className="text-[#c8102e] hover:text-[#a00d24] font-bold text-xs px-2 py-1 cursor-pointer"
                                 >
                                   ✕
                                 </button>
@@ -1032,18 +1117,18 @@ export default function BOM() {
               </div>
 
               {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-3 border-t pt-4">
+              <div className="flex items-center justify-end gap-3 border-t border-black/[0.08] pt-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  className="rp-btn rp-btn-outline"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingBom}
-                  className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 shadow-sm cursor-pointer disabled:opacity-50"
+                  className="rp-btn rp-btn-red"
                 >
                   {savingBom
                     ? "Saving to SAP via Service Layer..."

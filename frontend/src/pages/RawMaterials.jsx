@@ -151,53 +151,63 @@ export default function RawMaterials() {
   });
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-20">
-      {/* Top Header */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">SAP Raw Materials — Cost Master</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Displays <span className="font-semibold text-gray-700">Production Standard Cost</span> &amp; <span className="font-semibold text-gray-700">Last Purchase Cost</span>. Changes update SAP Item Master (<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">OITM.PrdStdCst</code>) via <span className="font-semibold text-blue-700">SAP B1 Service Layer</span>.
-          </p>
-        </div>
+    <div className="space-y-6 pb-20">
+      {/* Architectural Top Header */}
+      <div className="rp-card p-6 sm:p-7">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+          <div>
+            <div className="sec-label mb-2">SAP HANA · ITEM MASTER (OITM)</div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1a1a1a] tracking-[-0.02em]">
+              Raw Materials <span className="italic-accent">Cost Master</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-[#6b6863] mt-1.5 max-w-2xl">
+              Displays <span className="font-semibold text-[#c8102e]">Production Standard Cost</span> &amp;{" "}
+              <span className="font-semibold text-[#006D77]">Last Purchase Cost</span>. Updates write directly to{" "}
+              <code className="font-mono-code text-xs bg-[#f4f2ef] px-1.5 py-0.5 rounded-[3px] text-[#1a1a1a]">
+                OITM.PrdStdCst
+              </code>{" "}
+              via SAP B1 Service Layer.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <input
-            type="text"
-            placeholder="Search Item Code or Name..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3.5 py-2 text-sm bg-white text-gray-800 shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-none min-w-[220px]"
-          />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <input
+              type="text"
+              placeholder="Search Item Code or Description..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="border border-black/[0.15] rounded-[4px] px-3.5 py-2 text-xs sm:text-sm bg-white text-[#1a1a1a] font-medium focus:border-[#c8102e] focus:outline-none min-w-[240px]"
+            />
 
-          {dirtyItems.length > 0 && (
-            <button
-              onClick={handleSaveAllDirty}
-              disabled={savingAll}
-              className="px-4 py-2 bg-blue-600 text-white shadow-sm text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {savingAll
-                ? "Updating SAP via Service Layer..."
-                : `Save All Changes (${dirtyItems.length})`}
+            {dirtyItems.length > 0 && (
+              <button
+                onClick={handleSaveAllDirty}
+                disabled={savingAll}
+                className="rp-btn rp-btn-red"
+              >
+                {savingAll
+                  ? "Updating SAP via Service Layer..."
+                  : `Save All Changes (${dirtyItems.length})`}
+              </button>
+            )}
+
+            <button onClick={fetchMaterials} className="rp-btn rp-btn-dark">
+              Refresh SAP Data
             </button>
-          )}
-
-          <button
-            onClick={fetchMaterials}
-            className="px-3.5 py-2 bg-gray-800 text-white shadow-xs text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors cursor-pointer"
-          >
-            Refresh SAP Data
-          </button>
+          </div>
         </div>
       </div>
 
       {/* Status & Error Banners */}
       {statusMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between text-sm font-medium">
-          <span>✓ {statusMsg}</span>
+        <div className="bg-emerald-950/[0.04] border-l-4 border-emerald-600 border border-emerald-600/20 text-[#1a1a1a] px-4 py-3 rounded-[4px] flex items-center justify-between text-xs sm:text-sm font-medium">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
+            <span>{statusMsg}</span>
+          </div>
           <button
             onClick={() => setStatusMsg(null)}
-            className="text-emerald-600 hover:text-emerald-900 font-bold ml-4"
+            className="text-[#6b6863] hover:text-[#1a1a1a] font-bold ml-4 cursor-pointer"
           >
             ✕
           </button>
@@ -205,13 +215,14 @@ export default function RawMaterials() {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center justify-between text-sm">
+        <div className="bg-[#c8102e]/[0.05] border-l-4 border-[#c8102e] border border-[#c8102e]/20 text-[#1a1a1a] px-4 py-3 rounded-[4px] flex items-center justify-between text-xs sm:text-sm">
           <div>
-            <span className="font-semibold">Error:</span> {error}
+            <span className="font-bold uppercase tracking-[0.06em] text-[#c8102e] mr-2">Error:</span>
+            {error}
           </div>
           <button
             onClick={() => setError(null)}
-            className="text-red-600 hover:text-red-900 font-bold ml-4"
+            className="text-[#c8102e] hover:text-[#a00d24] font-bold ml-4 cursor-pointer"
           >
             ✕
           </button>
@@ -220,39 +231,42 @@ export default function RawMaterials() {
 
       {/* Table */}
       {loading ? (
-        <div className="bg-white p-12 rounded-xl shadow-sm border border-gray-200 text-center text-gray-500">
-          Loading Raw Materials from SAP Business One...
+        <div className="rp-card p-14 text-center">
+          <div className="inline-block w-6 h-6 border-2 border-[#c8102e] border-t-transparent rounded-full animate-spin mb-3" />
+          <div className="text-xs font-bold uppercase tracking-[0.12em] text-[#6b6863]">
+            Loading Raw Materials from SAP Business One HANA...
+          </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="rp-card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-black/[0.08]">
+              <thead className="bg-[#f4f2ef]">
                 <tr>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                     SAP Code
                   </th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                     Raw Material Description
                   </th>
-                  <th className="px-5 py-3.5 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-center text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                     UoM
                   </th>
-                  <th className="px-5 py-3.5 text-right text-xs font-semibold text-blue-700 uppercase tracking-wider bg-blue-50/40">
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em] bg-[#006D77]/[0.05]">
                     Last Purchase Cost
                   </th>
-                  <th className="px-5 py-3.5 text-right text-xs font-semibold text-indigo-700 uppercase tracking-wider bg-indigo-50/40">
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.05]">
                     Production Standard Cost (Editable)
                   </th>
-                  <th className="px-5 py-3.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                     Service Layer Action
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-black/[0.06]">
                 {filteredMaterials.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="p-8 text-center text-gray-500 italic">
+                    <td colSpan="6" className="p-8 text-center text-[#6b6863] italic text-sm">
                       No Raw Materials found matching your filter.
                     </td>
                   </tr>
@@ -265,32 +279,32 @@ export default function RawMaterials() {
                     return (
                       <tr
                         key={m.code}
-                        className={`hover:bg-blue-50/30 transition-colors ${
-                          dirty ? "bg-amber-50/40" : ""
+                        className={`hover:bg-[#faf9f7] transition-colors ${
+                          dirty ? "bg-[#c8102e]/[0.03]" : ""
                         }`}
                       >
                         <td className="px-5 py-3.5 whitespace-nowrap">
-                          <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-gray-100 text-gray-800 border border-gray-200">
+                          <span className="font-mono-code text-xs font-bold px-2.5 py-1 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.09]">
                             {m.code}
                           </span>
                         </td>
 
-                        <td className="px-5 py-3.5 font-semibold text-gray-900">
+                        <td className="px-5 py-3.5 font-semibold text-[#1a1a1a] text-sm">
                           {m.name}
                         </td>
 
-                        <td className="px-5 py-3.5 text-center text-xs text-gray-500 font-medium">
+                        <td className="px-5 py-3.5 text-center text-xs text-[#6b6863] font-mono-code font-medium">
                           {m.uom || "Kg"}
                         </td>
 
-                        <td className="px-5 py-3.5 text-right font-semibold text-blue-700 bg-blue-50/20">
+                        <td className="px-5 py-3.5 text-right font-mono-code font-bold text-sm text-[#006D77] bg-[#006D77]/[0.03]">
                           ₹{lastPur.toFixed(2)}
                         </td>
 
-                        <td className="px-5 py-3.5 text-right bg-indigo-50/20">
+                        <td className="px-5 py-3.5 text-right bg-[#c8102e]/[0.03]">
                           <div className="inline-flex items-center justify-end gap-2">
                             <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b6863] text-xs font-mono-code font-bold">
                                 ₹
                               </span>
                               <input
@@ -304,10 +318,10 @@ export default function RawMaterials() {
                                     handleSaveSingle(m);
                                   }
                                 }}
-                                className={`w-36 pl-7 pr-3 py-1.5 text-right font-semibold text-sm rounded-lg border focus:ring-2 focus:ring-indigo-500 focus:outline-none ${
+                                className={`w-36 pl-7 pr-3 py-1.5 text-right font-mono-code font-bold text-sm rounded-[4px] border focus:outline-none transition-colors ${
                                   dirty
-                                    ? "border-amber-400 bg-amber-50 text-gray-900"
-                                    : "border-gray-300 bg-white text-gray-800"
+                                    ? "border-[#c8102e] bg-white text-[#c8102e] ring-2 ring-[#c8102e]/15"
+                                    : "border-black/[0.15] bg-white text-[#1a1a1a] focus:border-[#c8102e]"
                                 }`}
                               />
                             </div>
@@ -315,20 +329,18 @@ export default function RawMaterials() {
                         </td>
 
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-2">
+                          <div className="inline-flex items-center gap-2.5">
                             <button
                               onClick={() => handleSaveSingle(m)}
                               disabled={isSaving}
-                              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
-                                dirty
-                                  ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs"
-                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300"
+                              className={`rp-btn py-1.5 px-3 text-[10.5px] ${
+                                dirty ? "rp-btn-red" : "rp-btn-outline"
                               }`}
                             >
                               {isSaving ? "Saving..." : "Update in SAP"}
                             </button>
                             {savedCodes[m.code] && !dirty && (
-                              <span className="text-xs font-semibold text-emerald-600">
+                              <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-emerald-700">
                                 Saved ✓
                               </span>
                             )}

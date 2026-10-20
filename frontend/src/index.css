@@ -1,1 +1,165 @@
 @import "tailwindcss";
+
+:root {
+  --rp-red: #c8102e;
+  --rp-red-dark: #a00d24;
+  --rp-red-light: #e8354d;
+  --rp-red-glow: rgba(200, 16, 46, 0.07);
+  --rp-black: #111111;
+  --rp-charcoal: #1c1c1c;
+  --rp-slate: #2a2a2a;
+  --rp-warm-white: #faf9f7;
+  --rp-off-white: #f4f2ef;
+  --rp-sand: #ece8e2;
+  --rp-white: #ffffff;
+  --rp-text-dark: #1a1a1a;
+  --rp-text-body: #444444;
+  --rp-text-muted: #6b6863;
+  --rp-text-light: #8a8780;
+  --sub-jay: #006D77;
+  --rp-border: rgba(0, 0, 0, 0.08);
+  --font-heading: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-accent: 'Playfair Display', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+}
+
+body {
+  font-family: var(--font-heading);
+  background-color: var(--rp-warm-white);
+  color: var(--rp-text-body);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle architectural noise texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.018;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Section Overline (.sec-label) */
+.sec-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-family: var(--font-heading);
+  font-size: 0.65625rem; /* 10.5px */
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rp-red);
+}
+
+.sec-label::before {
+  content: '';
+  width: 20px;
+  height: 2px;
+  background: var(--rp-red);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Playfair Display Italic Red Accent */
+.italic-accent {
+  font-family: var(--font-accent);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--rp-red);
+}
+
+.font-playfair {
+  font-family: var(--font-accent);
+}
+
+.font-mono-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Raghav Polymers Architectural Buttons */
+.rp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-size: 0.6875rem; /* 11px */
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.625rem 1.15rem;
+  border-radius: 4px;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rp-btn-red {
+  background-color: var(--rp-red);
+  color: #ffffff;
+  border: 1px solid var(--rp-red);
+}
+
+.rp-btn-red:hover:not(:disabled) {
+  background-color: var(--rp-red-dark);
+  border-color: var(--rp-red-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(200, 16, 46, 0.22);
+}
+
+.rp-btn-dark {
+  background-color: var(--rp-charcoal);
+  color: #ffffff;
+  border: 1px solid var(--rp-charcoal);
+}
+
+.rp-btn-dark:hover:not(:disabled) {
+  background-color: var(--rp-black);
+  border-color: var(--rp-black);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
+.rp-btn-outline {
+  background-color: #ffffff;
+  color: var(--rp-text-dark);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.rp-btn-outline:hover:not(:disabled) {
+  background-color: var(--rp-off-white);
+  border-color: rgba(0, 0, 0, 0.28);
+}
+
+/* Raghav Polymers Card */
+.rp-card {
+  background-color: var(--rp-white);
+  border: 1px solid var(--rp-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
