@@ -6,7 +6,7 @@ const serviceLayer = require("../serviceLayer");
 // --- Raw Materials (from SAP OITM + OINM) ---
 router.get("/", async (req, res) => {
   try {
-    const query = \`
+    const query = `
       SELECT 
         T0."ItemCode" AS "id",
         T0."ItemCode" AS "code",
@@ -31,7 +31,7 @@ router.get("/", async (req, res) => {
       ) LC ON T0."ItemCode" = LC."ItemCode"
       WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItmsGrpCod" = 101
       ORDER BY T0."ItemCode" ASC
-    \`;
+    `;
     const [materials] = await db.query(query);
     res.json(materials);
   } catch (err) {
@@ -52,16 +52,16 @@ router.put("/std-cost/batch", async (req, res) => {
       const itemCode = item.code || item.itemCode || item.id;
       const numericCost = Number(item.prod_std_cost);
       if (!itemCode || isNaN(numericCost) || numericCost < 0) {
-        throw new Error(\`Invalid Production Standard Cost for item \${itemCode}\`);
+        throw new Error("Invalid Production Standard Cost for item " + itemCode);
       }
-      await serviceLayer.patch(\`/Items('\${encodeURIComponent(itemCode)}')\`, {
+      await serviceLayer.patch("/Items('" + encodeURIComponent(itemCode) + "')", {
         ProdStdCost: numericCost
       });
       results.push({ code: itemCode, prod_std_cost: numericCost });
     }
 
     res.json({
-      message: \`Updated Production Standard Cost for \${results.length} item(s) via SAP Service Layer\`,
+      message: "Updated Production Standard Cost for " + results.length + " item(s) via SAP Service Layer",
       results
     });
   } catch (err) {
@@ -80,17 +80,17 @@ router.put("/:itemCode/std-cost", async (req, res) => {
       return res.status(400).json({ error: "Valid Production Standard Cost is required" });
     }
 
-    await serviceLayer.patch(\`/Items('\${encodeURIComponent(itemCode)}')\`, {
+    await serviceLayer.patch("/Items('" + encodeURIComponent(itemCode) + "')", {
       ProdStdCost: numericCost
     });
 
     res.json({
-      message: \`Updated Production Standard Cost for \${itemCode} to ₹\${numericCost.toFixed(2)} via SAP Service Layer\`,
+      message: "Updated Production Standard Cost for " + itemCode + " to ₹" + numericCost.toFixed(2) + " via SAP Service Layer",
       code: itemCode,
       prod_std_cost: numericCost
     });
   } catch (err) {
-    console.error(\`[ServiceLayer] Failed to update ProdStdCost for \${req.params.itemCode}:\`, err.message);
+    console.error("[ServiceLayer] Failed to update ProdStdCost for " + req.params.itemCode + ":", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -98,7 +98,7 @@ router.put("/:itemCode/std-cost", async (req, res) => {
 // --- Finished Goods & Sub-Assemblies with BOMs in SAP (OITT + OITM) ---
 router.get("/goods", async (req, res) => {
   try {
-    const query = \`
+    const query = `
       SELECT 
         T0."Code" AS "id",
         T0."Code" AS "code",
@@ -116,7 +116,7 @@ router.get("/goods", async (req, res) => {
       FROM "OITT" T0
       LEFT JOIN "OITM" P ON T0."Code" = P."ItemCode"
       ORDER BY "is_intermediate" ASC, T0."Code" ASC
-    \`;
+    `;
     const [rows] = await db.execute(query);
     res.json(rows);
   } catch (err) {
@@ -127,7 +127,7 @@ router.get("/goods", async (req, res) => {
 // --- Bill of Materials (BOM) Rows from SAP (ITT1 + OITT + OITM + OINM) ---
 router.get("/boms/all", async (req, res) => {
   try {
-    const query = \`
+    const query = `
       SELECT 
         T1."Father" || '_' || CAST(T1."ChildNum" AS VARCHAR) AS "id",
         T1."Father" AS "finished_good_id",
@@ -169,7 +169,7 @@ router.get("/boms/all", async (req, res) => {
         WHERE "rn" = 1
       ) LC ON T1."Code" = LC."ItemCode"
       ORDER BY T1."Father" ASC, T1."ChildNum" ASC
-    \`;
+    `;
     const [rows] = await db.execute(query);
     res.json(rows);
   } catch (err) {
@@ -203,7 +203,7 @@ router.post("/bom", async (req, res) => {
 router.put("/bom/:treeCode", async (req, res) => {
   try {
     const { treeCode } = req.params;
-    const result = await serviceLayer.patch(\`/ProductTrees('\${encodeURIComponent(treeCode)}')\`, req.body);
+    const result = await serviceLayer.patch("/ProductTrees('" + encodeURIComponent(treeCode) + "')", req.body);
     res.json(result || { message: "BOM updated via SAP Service Layer" });
   } catch (err) {
     res.status(500).json({ error: err.message });
