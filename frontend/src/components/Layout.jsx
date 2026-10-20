@@ -41,7 +41,7 @@ export default function Layout({ children }) {
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                SAP B1 Live (Port 5002)
+                SAP B1 Live (Port 5003)
               </span>
             </div>
           </div>

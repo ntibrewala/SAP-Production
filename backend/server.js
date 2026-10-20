@@ -41,7 +41,7 @@ app.use((req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5002;
+const PORT = process.env.PORT || 5003;
 app.listen(PORT, () => {
   const cfg = loadSAPConfig();
   console.log(`SAP-Production Server running on port ${PORT} (Schema: ${cfg.schema}, Config: ${cfg.configPath})`);
