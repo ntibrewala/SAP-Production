@@ -47,7 +47,12 @@ function loadSAPConfig(forceReload = false) {
   const hanaSection = parsed.HANA || {};
   const sapSection = parsed.SAP || {};
   const slSection = parsed.ServiceLayer || {};
-  const jaySection = parsed.JAY_EXTRUTECH || sapSection.JAY_EXTRUTECH || {};
+  const jaySection =
+    parsed.JAY_EXTRUTECH ||
+    parsed.JayExtrutech ||
+    sapSection.JAY_EXTRUTECH ||
+    sapSection.JayExtrutech ||
+    {};
   const roConfig = hanaSection.ReadOnlyConfig || {};
   const rwConfig = hanaSection.ReadWrite || {};
 
@@ -95,9 +100,15 @@ function loadSAPConfig(forceReload = false) {
     process.env.SAP_USER ||
     (isJay && (
       sapSection.JayUserName ||
+      sapSection.JayUser ||
+      sapSection.JayExtrutechUser ||
+      sapSection.JayExtrutechUserName ||
       sapSection.JAY_EXTRUTECH_UserName ||
+      sapSection.JAY_EXTRUTECH_User ||
       jaySection.UserName ||
-      parsed.JayUserName
+      jaySection.User ||
+      parsed.JayUserName ||
+      parsed.JayExtrutechUser
     )) ||
     sapSection.UserName ||
     "manager"
@@ -107,10 +118,12 @@ function loadSAPConfig(forceReload = false) {
     process.env.SAP_PASSWORD ||
     (isJay && (
       sapSection.JayPassword ||
+      sapSection.JayExtrutechPassword ||
       sapSection.JAY_EXTRUTECH_Password ||
       jaySection.Password ||
       (sapSection.Passwords && sapSection.Passwords.JAY_EXTRUTECH) ||
-      parsed.JayPassword
+      parsed.JayPassword ||
+      parsed.JayExtrutechPassword
     )) ||
     sapSection.Password ||
     ""
