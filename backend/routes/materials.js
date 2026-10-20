@@ -73,7 +73,7 @@ router.get("/available-items", async (req, res) => {
       FROM "OITM" T0
       LEFT JOIN "OITT" B ON T0."ItemCode" = B."Code"
       WHERE T0."ItmsGrpCod" IN (102, 107) OR T0."ItemCode" LIKE 'FG%' OR T0."ItemCode" LIKE 'SFG%'
-      ORDER BY "has_bom" ASC, "is_intermediate" ASC, T0."ItemCode" ASC
+      ORDER BY "is_intermediate" ASC, T0."ItemCode" ASC
     `;
     const [rows] = await db.execute(query);
     res.json(rows);
@@ -301,11 +301,33 @@ router.post("/bom", async (req, res) => {
       }))
     };
 
-    const result = await serviceLayer.post("/ProductTrees", payload);
-    res.status(201).json({
-      message: "Created BOM for " + cleanCode + " in SAP via Service Layer",
-      result
-    });
+    const [existingBom] = await db.execute(
+      `SELECT "Code" FROM "OITT" WHERE "Code" = ?`,
+      [cleanCode]
+    );
+
+    let result;
+    if (existingBom && existingBom.length > 0) {
+      result = await serviceLayer.patch(
+        "/ProductTrees('" + encodeURIComponent(cleanCode) + "')",
+        {
+          Quantity: headerQty,
+          Warehouse: warehouse || "01",
+          ProductTreeLines: payload.ProductTreeLines
+        },
+        { "B1S-ReplaceCollectionsOnPatch": "true" }
+      );
+      return res.status(200).json({
+        message: "Updated BOM for " + cleanCode + " in SAP via Service Layer",
+        result
+      });
+    } else {
+      result = await serviceLayer.post("/ProductTrees", payload);
+      return res.status(201).json({
+        message: "Created BOM for " + cleanCode + " in SAP via Service Layer",
+        result
+      });
+    }
   } catch (err) {
     console.error("[ServiceLayer] Create BOM error:", err.message);
     res.status(500).json({ error: err.message });

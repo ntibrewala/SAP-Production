@@ -851,32 +851,40 @@ export default function BOM() {
                       <select
                         value={formTreeCode}
                         onChange={e => {
-                          const selected = availableItems.find(i => i.code === e.target.value);
-                          setFormTreeCode(e.target.value);
+                          const code = e.target.value;
+                          const selected = availableItems.find(i => i.code === code);
+                          setFormTreeCode(code);
                           setFormItemName(selected?.name || "");
+                          const existingLines = allBoms
+                            .filter(b => b.finished_good_id === code)
+                            .map(b => ({
+                              compType: b.child_good_id ? "sfg" : "raw",
+                              itemCode: b.item_code || b.raw_material_id || b.child_good_id || "",
+                              quantity: String(b.quantity_required ?? ""),
+                              warehouse: b.warehouse || formWarehouse || "01"
+                            }));
+                          if (existingLines.length > 0) {
+                            setFormLines(existingLines);
+                          }
                         }}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white font-medium text-gray-800"
                         required
                       >
                         <option value="">-- Select FG or Semi-Finished Good --</option>
-                        {itemsWithoutBom.filter(i => !i.is_intermediate).length > 0 && (
-                          <optgroup label="Finished Goods (FG — No BOM Yet)">
-                            {itemsWithoutBom.filter(i => !i.is_intermediate).map(item => (
-                              <option key={item.code} value={item.code}>
-                                {item.code} — {item.name} (FG)
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {itemsWithoutBom.filter(i => i.is_intermediate).length > 0 && (
-                          <optgroup label="Semi-Finished Goods (SFG — No BOM Yet)">
-                            {itemsWithoutBom.filter(i => i.is_intermediate).map(item => (
-                              <option key={item.code} value={item.code}>
-                                {item.code} — {item.name} (SFG)
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
+                        <optgroup label={`Finished Goods (FG — ${availableItems.filter(i => !i.is_intermediate).length})`}>
+                          {availableItems.filter(i => !i.is_intermediate).map(item => (
+                            <option key={item.code} value={item.code}>
+                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={`Semi-Finished Goods (SFG — ${availableItems.filter(i => i.is_intermediate).length})`}>
+                          {availableItems.filter(i => i.is_intermediate).map(item => (
+                            <option key={item.code} value={item.code}>
+                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
+                            </option>
+                          ))}
+                        </optgroup>
                       </select>
                     </div>
                     <div>
