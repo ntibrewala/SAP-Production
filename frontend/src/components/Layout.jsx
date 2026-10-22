@@ -5,6 +5,7 @@ export default function Layout({ children }) {
 
   const navItems = [
     { name: "Formulations (BOM)", path: "/bom" },
+    { name: "Production Orders", path: "/production" },
     { name: "Raw Materials", path: "/raw-materials" }
   ];
 
@@ -160,7 +161,7 @@ export default function Layout({ children }) {
             Raghav Polymers Group
           </div>
           <div className="font-mono-code text-[11px] text-[#8a8780]">
-            SAP Business One HANA · OITM &amp; OITT Service Layer Integration
+            SAP Business One HANA · OITM, OITT &amp; OWOR Service Layer Integration
           </div>
         </div>
         <div

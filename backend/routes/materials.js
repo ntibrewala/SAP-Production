@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require("../db");
 const serviceLayer = require("../serviceLayer");
 
-// --- Raw Materials (from SAP OITM + OINM) ---
+// --- Raw Materials (from SAP OITM + OINM + OITW) ---
 router.get("/", async (req, res) => {
   try {
     const query = `
@@ -15,7 +15,14 @@ router.get("/", async (req, res) => {
         CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
         CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), 0) AS DOUBLE) AS "last_purchase_cost",
         CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), 0) AS DOUBLE) AS "unit_cost",
-        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "stock_level"
+        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
+        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "stock_level",
+        CAST(COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "is_committed",
+        CAST(COALESCE(T0."OnOrder", 0) AS DOUBLE) AS "on_order",
+        CAST(COALESCE(T0."OnHand", 0) - COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "available_stock",
+        CAST(COALESCE(W01."OnHand", 0) AS DOUBLE) AS "wh_01_stock",
+        CAST(COALESCE(W8."OnHand", 0) AS DOUBLE) AS "wh_8_stock",
+        CAST(COALESCE(W10."OnHand", 0) AS DOUBLE) AS "wh_10_stock"
       FROM "OITM" T0
       LEFT JOIN (
         SELECT "ItemCode", "Price"
@@ -29,11 +36,45 @@ router.get("/", async (req, res) => {
         )
         WHERE "rn" = 1
       ) LC ON T0."ItemCode" = LC."ItemCode"
+      LEFT JOIN "OITW" W01 ON T0."ItemCode" = W01."ItemCode" AND W01."WhsCode" = '01'
+      LEFT JOIN "OITW" W8 ON T0."ItemCode" = W8."ItemCode" AND W8."WhsCode" = '8'
+      LEFT JOIN "OITW" W10 ON T0."ItemCode" = W10."ItemCode" AND W10."WhsCode" = '10'
       WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItmsGrpCod" = 101
       ORDER BY T0."ItemCode" ASC
     `;
-    const [materials] = await db.query(query);
-    res.json(materials);
+
+    const whsQuery = `
+      SELECT 
+        W."ItemCode" AS "code", 
+        W."WhsCode" AS "whs_code", 
+        CAST(COALESCE(W."OnHand", 0) AS DOUBLE) AS "on_hand"
+      FROM "OITW" W
+      INNER JOIN "OITM" T0 ON W."ItemCode" = T0."ItemCode"
+      WHERE (T0."ItemCode" LIKE 'RM%' OR T0."ItmsGrpCod" = 101) AND W."OnHand" <> 0
+    `;
+
+    const [[materials], [whsRows]] = await Promise.all([
+      db.query(query),
+      db.query(whsQuery)
+    ]);
+
+    const whsMap = {};
+    for (const r of whsRows || []) {
+      if (!whsMap[r.code]) whsMap[r.code] = {};
+      whsMap[r.code][r.whs_code] = Number(r.on_hand || 0);
+    }
+
+    const enriched = (materials || []).map((m) => ({
+      ...m,
+      warehouse_stocks: {
+        "01": Number(m.wh_01_stock || 0),
+        "8": Number(m.wh_8_stock || 0),
+        "10": Number(m.wh_10_stock || 0),
+        ...(whsMap[m.code] || {})
+      }
+    }));
+
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -65,6 +106,7 @@ router.get("/available-items", async (req, res) => {
         T0."ItemName" AS "name",
         T0."ItmsGrpCod" AS "item_group",
         COALESCE(T0."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
         CASE WHEN B."Code" IS NOT NULL THEN 1 ELSE 0 END AS "has_bom",
         CASE 
           WHEN T0."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" = 107 THEN 1 
@@ -150,6 +192,7 @@ router.get("/goods", async (req, res) => {
         T0."TreeType" AS "bom_type",
         T0."ToWH" AS "warehouse",
         COALESCE(P."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(P."OnHand", 0) AS DOUBLE) AS "on_hand",
         CAST(COALESCE(P."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
         CAST(COALESCE(P."LastPurPrc", 0) AS DOUBLE) AS "last_purchase_cost",
         CASE 
@@ -191,6 +234,7 @@ router.get("/boms/all", async (req, res) => {
         T1."Warehouse" AS "warehouse",
         T1."IssueMthd" AS "issue_method",
         COALESCE(C."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(C."OnHand", 0) AS DOUBLE) AS "on_hand",
         CAST(COALESCE(C."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
         CAST(COALESCE(LC."Price", NULLIF(C."LastPurPrc", 0), NULLIF(C."AvgPrice", 0), 0) AS DOUBLE) AS "last_purchase_cost",
         CAST(COALESCE(LC."Price", NULLIF(C."LastPurPrc", 0), NULLIF(C."AvgPrice", 0), 0) AS DOUBLE) AS "raw_cost",
