@@ -293,11 +293,8 @@ router.get("/available-items", async (req, res) => {
         T0."ItemName" AS "name",
         T0."FrgnName" AS "foreign_name",
         T0."ItmsGrpCod" AS "item_group",
-        COALESCE(T0."DfltWH", '01') AS "warehouse",
         COALESCE(T0."Phantom", 'N') AS "phantom",
         CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
-        CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
-        CAST(COALESCE(T0."LastPurPrc", 0) AS DOUBLE) AS "last_purchase_cost",
         CASE WHEN B."Code" IS NOT NULL THEN 1 ELSE 0 END AS "has_bom",
         CASE 
           WHEN T0."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" = 107 THEN 1 
