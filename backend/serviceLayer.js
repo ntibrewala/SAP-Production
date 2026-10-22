@@ -6,6 +6,7 @@ const { loadSAPConfig } = require("./sapConfig");
 let b1Session = "";
 let routeId = "";
 let isLoggedIn = false;
+let activeCredentials = null;
 
 function rawRequest(method, fullUrl, bodyObj = null, cookies = "", extraHeaders = {}) {
   return new Promise((resolve, reject) => {
@@ -71,30 +72,12 @@ function rawRequest(method, fullUrl, bodyObj = null, cookies = "", extraHeaders 
   });
 }
 
-async function login(force = false) {
-  if (isLoggedIn && b1Session && !force) {
-    return;
-  }
-
-  const cfg = loadSAPConfig(true);
-  const loginUrl = `${cfg.ServiceLayer.url}/Login`;
-  const payload = {
-    CompanyDB: cfg.companyDB,
-    UserName: cfg.SAP.userName,
-    Password: cfg.SAP.password
-  };
-
-  const res = await rawRequest("POST", loginUrl, payload);
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    const errMsg = res.body?.error?.message?.value || JSON.stringify(res.body);
-    throw new Error(`SAP Service Layer Login failed (${res.statusCode}): ${errMsg}`);
-  }
-
+function applySessionCookies(res) {
   if (res.body && res.body.SessionId) {
     b1Session = res.body.SessionId;
   }
 
-  for (const cookieStr of res.setCookies) {
+  for (const cookieStr of res.setCookies || []) {
     const b1Match = cookieStr.match(/B1SESSION=([^;]+)/);
     if (b1Match) b1Session = b1Match[1];
     const routeMatch = cookieStr.match(/ROUTEID=([^;]+)/);
@@ -102,6 +85,67 @@ async function login(force = false) {
   }
 
   isLoggedIn = true;
+}
+
+async function verifyUserLogin(userName, password) {
+  const cfg = loadSAPConfig(true);
+  const loginUrl = `${cfg.ServiceLayer.url}/Login`;
+  const payload = {
+    CompanyDB: cfg.companyDB,
+    UserName: String(userName || "").trim(),
+    Password: String(password || "")
+  };
+
+  const res = await rawRequest("POST", loginUrl, payload);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    const errMsg = res.body?.error?.message?.value || "Invalid SAP username or password";
+    throw new Error(errMsg);
+  }
+
+  applySessionCookies(res);
+  activeCredentials = {
+    userName: payload.UserName,
+    password: payload.Password
+  };
+
+  return {
+    sessionId: b1Session,
+    companyDB: cfg.companyDB,
+    userName: payload.UserName
+  };
+}
+
+async function login(force = false) {
+  if (isLoggedIn && b1Session && !force) {
+    return;
+  }
+
+  const cfg = loadSAPConfig(true);
+  const loginUrl = `${cfg.ServiceLayer.url}/Login`;
+  const primaryPayload = {
+    CompanyDB: cfg.companyDB,
+    UserName: activeCredentials?.userName || cfg.SAP.userName,
+    Password: activeCredentials?.password || cfg.SAP.password
+  };
+
+  let res = await rawRequest("POST", loginUrl, primaryPayload);
+
+  // If active user credentials fail on a background re-login, fall back to cfg.SAP.userName / cfg.SAP.password
+  if ((res.statusCode < 200 || res.statusCode >= 300) && activeCredentials && cfg.SAP.userName) {
+    const fallbackPayload = {
+      CompanyDB: cfg.companyDB,
+      UserName: cfg.SAP.userName,
+      Password: cfg.SAP.password
+    };
+    res = await rawRequest("POST", loginUrl, fallbackPayload);
+  }
+
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    const errMsg = res.body?.error?.message?.value || JSON.stringify(res.body);
+    throw new Error(`SAP Service Layer Login failed (${res.statusCode}): ${errMsg}`);
+  }
+
+  applySessionCookies(res);
 }
 
 async function request(method, endpoint, payload = null, retry = true, extraHeaders = {}) {
@@ -129,6 +173,7 @@ async function request(method, endpoint, payload = null, retry = true, extraHead
 
 module.exports = {
   login,
+  verifyUserLogin,
   get: (endpoint, extraHeaders) => request("GET", endpoint, null, true, extraHeaders),
   post: (endpoint, payload, extraHeaders) => request("POST", endpoint, payload, true, extraHeaders),
   patch: (endpoint, payload, extraHeaders) => request("PATCH", endpoint, payload, true, extraHeaders),

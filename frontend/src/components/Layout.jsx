@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 
-export default function Layout({ children }) {
+export default function Layout({ children, user, onLogout }) {
   const location = useLocation();
 
   const navItems = [
@@ -8,6 +8,13 @@ export default function Layout({ children }) {
     { name: "Production Orders", path: "/production" },
     { name: "Raw Materials", path: "/raw-materials" }
   ];
+
+  const hasDistinctDisplayName =
+    user?.displayName &&
+    user?.username &&
+    String(user.displayName).toLowerCase() !== String(user.username).toLowerCase();
+
+  const isSuperuser = user?.superuser === "Y" || user?.role === "Superuser";
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf9f7] text-[#444444]">
@@ -24,7 +31,7 @@ export default function Layout({ children }) {
           <div className="flex justify-between items-center h-[76px] gap-4">
             {/* Raghav Polymers Group Brand Logo */}
             <Link
-              to="/bom"
+              to="/production"
               className="rp-logo flex items-center shrink-0"
               title="Raghav Polymers Group"
             >
@@ -33,7 +40,7 @@ export default function Layout({ children }) {
                 viewBox="0 0 530 60"
                 width="310"
                 height="36"
-                className="w-[230px] sm:w-[310px] h-auto block"
+                className="w-[210px] sm:w-[290px] lg:w-[310px] h-auto block"
               >
                 <defs>
                   <style>{`
@@ -95,10 +102,10 @@ export default function Layout({ children }) {
 
             {/* Desktop Navigation Tabs */}
             <nav className="hidden md:flex items-center gap-2">
-              {navItems.map(item => {
+              {navItems.map((item) => {
                 const isActive =
                   location.pathname === item.path ||
-                  (location.pathname === "/" && item.path === "/bom");
+                  (location.pathname === "/" && item.path === "/production");
                 return (
                   <Link
                     key={item.name}
@@ -115,22 +122,52 @@ export default function Layout({ children }) {
               })}
             </nav>
 
-            {/* Right Status Indicator */}
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-[10.5px] font-bold uppercase tracking-[0.1em] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.08]">
+            {/* Right Status Indicator & Logged-In SAP User Badge */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <span className="hidden xl:inline-flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-[10.5px] font-bold uppercase tracking-[0.1em] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.08]">
                 <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
                 SAP B1 · SERVICE LAYER LIVE
               </span>
+
+              {user && (
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-[4px] bg-white border border-black/[0.1] shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+                    <span className="font-mono-code text-[11.5px] font-bold text-[#1a1a1a]">
+                      {user.username}
+                      {hasDistinctDisplayName ? ` · ${user.displayName}` : ""}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-[3px] text-[9.5px] font-bold uppercase tracking-[0.08em] ${
+                        isSuperuser
+                          ? "bg-[#c8102e]/10 text-[#c8102e]"
+                          : "bg-[#f4f2ef] text-[#6b6863]"
+                      }`}
+                    >
+                      {isSuperuser ? "SUPERUSER" : "SAP USER"}
+                    </span>
+                  </div>
+
+                  {onLogout && (
+                    <button
+                      type="button"
+                      onClick={onLogout}
+                      className="rp-btn rp-btn-outline !py-1.5 !px-3 !text-[10.5px]"
+                    >
+                      Sign Out
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Mobile Navigation Bar */}
         <div className="md:hidden flex border-t border-black/[0.08] bg-[#f4f2ef]">
-          {navItems.map(item => {
+          {navItems.map((item) => {
             const isActive =
               location.pathname === item.path ||
-              (location.pathname === "/" && item.path === "/bom");
+              (location.pathname === "/" && item.path === "/production");
             return (
               <Link
                 key={item.name}
