@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const DEFAULT_WAREHOUSES = [
   { code: "01", name: "Tew Automation" },
@@ -20,6 +20,8 @@ export default function Production() {
   // MRP state
   const [mrpData, setMrpData] = useState(null);
   const [mrpFilter, setMrpFilter] = useState("ALL"); // ALL | SHORTAGE
+  const [showMrpBelow, setShowMrpBelow] = useState(false);
+  const mrpSectionRef = useRef(null);
 
   // Filters & Accordion state
   const [statusFilter, setStatusFilter] = useState("ACTIVE"); // ACTIVE | MRP | PRODUCED | ALL | P | R | L
@@ -739,28 +741,6 @@ export default function Production() {
             All Orders ({totalOrdersCount})
           </button>
 
-          <button
-            type="button"
-            onClick={() => setStatusFilter("MRP")}
-            className={`px-4 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.08em] transition-all cursor-pointer border flex items-center gap-2 ${
-              statusFilter === "MRP"
-                ? "bg-[#c8102e] text-white border-[#c8102e] shadow-sm"
-                : "bg-[#c8102e]/[0.06] text-[#c8102e] border-[#c8102e]/30 hover:bg-[#c8102e]/[0.12]"
-            }`}
-          >
-            <span>Material Requirements &amp; Purchase Plan (MRP)</span>
-            <span
-              className={`font-mono-code text-[10.5px] px-2 py-0.5 rounded-[3px] font-extrabold ${
-                statusFilter === "MRP"
-                  ? "bg-white text-[#c8102e]"
-                  : "bg-[#c8102e] text-white"
-              }`}
-            >
-              {computedMrp.shortageItemsCount > 0
-                ? `${computedMrp.shortageItemsCount} TO BUY`
-                : `${mrpRequirements.length} REQ`}
-            </span>
-          </button>
         </div>
 
         {/* Filter & Search Bar */}
@@ -849,374 +829,12 @@ export default function Production() {
         </div>
       )}
 
-      {/* Quick MRP Shortage Summary Banner when viewing Open / Active Orders */}
-      {!loading && statusFilter !== "MRP" && mrpRequirements.length > 0 && (
-        <div
-          className="rp-card p-4 sm:p-5 bg-white"
-          style={{
-            borderLeft: `4px solid ${
-              computedMrp.shortageItemsCount > 0 ? "#c8102e" : "#006D77"
-            }`
-          }}
-        >
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] px-2 py-0.5 rounded-[3px] bg-[#1a1a1a] text-white">
-                  LIVE MRP SUMMARY · {computedMrp.pendingOrdersCount} PENDING ORDER(S)
-                </span>
-                {computedMrp.shortageItemsCount > 0 ? (
-                  <span className="text-[10px] font-extrabold uppercase tracking-[0.09em] px-2.5 py-0.5 rounded-[3px] bg-[#c8102e]/10 text-[#c8102e] border border-[#c8102e]/30">
-                    ⚠ {computedMrp.shortageItemsCount} Material(s) Short — Need to Purchase{" "}
-                    {formatQty(computedMrp.totalShortageKg)} Kg
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-extrabold uppercase tracking-[0.09em] px-2.5 py-0.5 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
-                    ✓ All Required Materials Available in Stock
-                  </span>
-                )}
-              </div>
-              <div className="text-xs sm:text-sm text-[#444444]">
-                Pending Orders require{" "}
-                <strong className="font-mono-code text-[#1a1a1a]">
-                  {mrpRequirements.length} material(s) ({formatQty(computedMrp.totalRequiredKg)} Kg total)
-                </strong>
-                {computedMrp.shortageItemsCount > 0 && (
-                  <>
-                    {" "}
-                    · Est. Purchase Value:{" "}
-                    <strong className="font-mono-code text-[#c8102e]">
-                      ₹{formatInr(computedMrp.totalEstimatedPurchaseCost)}
-                    </strong>
-                  </>
-                )}
-              </div>
-              {/* Quick Pills of Short Items */}
-              {computedMrp.shortageItemsCount > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  {mrpRequirements
-                    .filter(r => r.to_purchase_qty > 0.0001)
-                    .map(r => (
-                      <span
-                        key={r.code}
-                        className="font-mono-code text-[11px] font-bold px-2 py-0.5 rounded-[3px] bg-[#c8102e]/[0.07] text-[#c8102e] border border-[#c8102e]/25"
-                      >
-                        {r.code} ({r.name}): BUY {formatQty(r.to_purchase_qty)} {r.uom}
-                      </span>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            <div className="shrink-0">
-              <button
-                type="button"
-                onClick={() => setStatusFilter("MRP")}
-                className="rp-btn rp-btn-red py-2 px-4 text-xs"
-              >
-                View Full Purchase Plan (MRP) →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Production Orders List OR Material Requirements & Purchase Plan (MRP) View */}
+      {/* Production Orders List */}
       {loading ? (
         <div className="rp-card p-14 text-center">
           <div className="inline-block w-6 h-6 border-2 border-[#c8102e] border-t-transparent rounded-full animate-spin mb-3" />
           <div className="text-xs font-bold uppercase tracking-[0.12em] text-[#6b6863]">
             Loading Production Orders, Component Lines &amp; SAP Transactions...
-          </div>
-        </div>
-      ) : statusFilter === "MRP" ? (
-        <div className="space-y-5">
-          {/* MRP Dedicated KPI Strip & Controls Card */}
-          <div className="rp-card p-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-black/[0.08]">
-              <div>
-                <div className="sec-label mb-1">
-                  MATERIAL REQUIREMENTS PLANNING (MRP) · OPEN PRODUCTION ORDERS (OWOR &amp; WOR1)
-                </div>
-                <h2 className="text-xl sm:text-2xl font-extrabold text-[#1a1a1a]">
-                  Pending Production Material Requirements &amp;{" "}
-                  <span className="italic-accent">To-Purchase Shortage Plan</span>
-                </h2>
-                <p className="text-xs text-[#6b6863] mt-1">
-                  Aggregates unissued component quantities across all open Production Orders (Status{" "}
-                  <code className="font-mono-code font-bold text-[#1a1a1a]">P</code> &amp;{" "}
-                  <code className="font-mono-code font-bold text-[#1a1a1a]">R</code>), compares
-                  against live SAP <code className="font-mono-code font-bold text-[#1a1a1a]">OITM.OnHand</code>{" "}
-                  stock, and calculates exact purchase shortages.
-                </p>
-              </div>
-
-              {/* Filter Toggle: All Required vs Shortages Only */}
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setMrpFilter("ALL")}
-                  className={`px-3.5 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.07em] border cursor-pointer transition-all ${
-                    mrpFilter === "ALL"
-                      ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
-                      : "bg-[#faf9f7] text-[#444444] border-black/[0.12] hover:bg-[#f4f2ef]"
-                  }`}
-                >
-                  All Required Materials ({mrpRequirements.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMrpFilter("SHORTAGE")}
-                  className={`px-3.5 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.07em] border cursor-pointer transition-all ${
-                    mrpFilter === "SHORTAGE"
-                      ? "bg-[#c8102e] text-white border-[#c8102e]"
-                      : "bg-[#c8102e]/[0.06] text-[#c8102e] border-[#c8102e]/30 hover:bg-[#c8102e]/[0.12]"
-                  }`}
-                >
-                  Shortages / To Be Purchased Only ({computedMrp.shortageItemsCount})
-                </button>
-              </div>
-            </div>
-
-            {/* 4-Card MRP KPI Strip */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
-              <div className="bg-[#faf9f7] border border-black/[0.08] rounded-[4px] p-3.5">
-                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
-                  Pending Production Orders
-                </div>
-                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#1a1a1a] mt-1">
-                  {computedMrp.pendingOrdersCount}
-                </div>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {(computedMrp.pendingOrders || []).map(po => (
-                    <span
-                      key={po.doc_entry}
-                      className="font-mono-code text-[10px] font-bold px-1.5 py-0.2 rounded-[2px] bg-[#1a1a1a] text-white"
-                    >
-                      Ord #{po.doc_num} ({po.item_code})
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-[#006D77]/[0.05] border border-[#006D77]/25 rounded-[4px] p-3.5">
-                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#006D77]">
-                  Total Materials Required
-                </div>
-                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#006D77] mt-1">
-                  {formatQty(computedMrp.totalRequiredKg)}{" "}
-                  <span className="text-xs font-bold">Kg</span>
-                </div>
-                <div className="text-[11px] text-[#6b6863] mt-0.5">
-                  Across {mrpRequirements.length} unique component(s)
-                </div>
-              </div>
-
-              <div className="bg-[#c8102e]/[0.05] border border-[#c8102e]/30 rounded-[4px] p-3.5">
-                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#c8102e]">
-                  Materials in Shortage (To Purchase)
-                </div>
-                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#c8102e] mt-1">
-                  {computedMrp.shortageItemsCount} Item(s) ·{" "}
-                  {formatQty(computedMrp.totalShortageKg)}{" "}
-                  <span className="text-xs font-bold">Kg</span>
-                </div>
-                <div className="text-[11px] text-[#c8102e]/80 mt-0.5">
-                  Where Required Qty &gt; SAP Stock On Hand
-                </div>
-              </div>
-
-              <div className="bg-amber-500/[0.06] border border-amber-500/30 rounded-[4px] p-3.5">
-                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-amber-900">
-                  Est. Purchase Value (Shortage)
-                </div>
-                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-amber-800 mt-1">
-                  ₹{formatInr(computedMrp.totalEstimatedPurchaseCost)}
-                </div>
-                <div className="text-[11px] text-amber-900/75 mt-0.5">
-                  Valued at SAP Last Purchase Price
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Detailed MRP Table */}
-          <div className="rp-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-black/[0.08]">
-                <thead className="bg-[#f4f2ef]">
-                  <tr>
-                    <th className="px-4 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
-                      SAP Code &amp; Material Description
-                    </th>
-                    <th className="px-4 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
-                      Pending Orders Breakdown
-                    </th>
-                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#1a1a1a] uppercase tracking-[0.1em] bg-black/[0.02]">
-                      Total Qty Required
-                    </th>
-                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-emerald-800 uppercase tracking-[0.1em] bg-emerald-950/[0.04]">
-                      Available Stock (On Hand)
-                    </th>
-                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em]">
-                      Open PO (On Order)
-                    </th>
-                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.05]">
-                      Shortage / Qty To Purchase
-                    </th>
-                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
-                      Last Pur. Rate &amp; Est. Purchase Cost
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-black/[0.06] text-xs">
-                  {filteredMrpRequirements.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="p-10 text-center text-[#6b6863] italic text-sm">
-                        {mrpFilter === "SHORTAGE"
-                          ? "No material shortages found — all required materials are sufficiently covered by current SAP stock!"
-                          : "No pending material requirements found across open Production Orders."}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredMrpRequirements.map(item => {
-                      const reqQty = Number(item.required_qty || 0);
-                      const onHand = Number(item.on_hand || 0);
-                      const onOrder = Number(item.on_order || 0);
-                      const toBuy = Number(item.to_purchase_qty || 0);
-                      const surplus = Number(item.surplus_qty || 0);
-                      const netAfterPo = Number(item.net_after_po_qty || 0);
-                      const lastPur = Number(item.last_purchase_cost || 0);
-                      const estCost = Number(item.estimated_purchase_cost || 0);
-                      const isShort = toBuy > 0.0001;
-
-                      return (
-                        <tr
-                          key={item.code}
-                          className={`hover:bg-[#faf9f7] transition-colors ${
-                            isShort ? "bg-[#c8102e]/[0.02]" : ""
-                          }`}
-                        >
-                          {/* 1. SAP Code & Material Description */}
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono-code text-xs font-extrabold px-2.5 py-1 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.1]">
-                                {item.code}
-                              </span>
-                              <span
-                                className={`text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-[2px] ${
-                                  item.item_type === "SFG"
-                                    ? "bg-[#006D77]/10 text-[#006D77]"
-                                    : "bg-black/[0.06] text-[#444444]"
-                                }`}
-                              >
-                                {item.item_type || "RM"}
-                              </span>
-                            </div>
-                            <div className="font-bold text-sm text-[#1a1a1a] mt-1">
-                              {item.name}
-                            </div>
-                          </td>
-
-                          {/* 2. Pending Orders Breakdown */}
-                          <td className="px-4 py-3.5">
-                            <div className="flex flex-wrap gap-1.5">
-                              {(item.pending_orders || []).map((po, idx) => (
-                                <span
-                                  key={`${po.doc_entry}_${idx}`}
-                                  className="font-mono-code text-[11px] font-semibold px-2 py-1 rounded-[3px] bg-[#faf9f7] text-[#1a1a1a] border border-black/[0.1]"
-                                  title={`Order #${po.doc_num} — ${po.parent_name} (WH ${po.warehouse || "01"})`}
-                                >
-                                  Order #{po.doc_num} ({po.parent_code}):{" "}
-                                  <strong className="text-[#c8102e]">
-                                    {formatQty(po.pending_qty)} {item.uom || "Kg"}
-                                  </strong>
-                                  {po.via_sfg && (
-                                    <span className="text-[#006D77] ml-1">
-                                      [via {po.via_sfg}]
-                                    </span>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-
-                          {/* 3. Total Qty Required */}
-                          <td className="px-4 py-3.5 text-right font-mono-code font-extrabold text-sm text-[#1a1a1a] bg-black/[0.015] whitespace-nowrap">
-                            {formatQty(reqQty)} {item.uom || "Kg"}
-                            {Number(item.sfg_exploded_qty || 0) > 0.0001 && (
-                              <div className="text-[10px] font-normal text-[#006D77]">
-                                Incl. {formatQty(item.sfg_exploded_qty)} Kg via SFG BOM
-                              </div>
-                            )}
-                          </td>
-
-                          {/* 4. Available Stock (On Hand) */}
-                          <td className="px-4 py-3.5 text-right font-mono-code bg-emerald-950/[0.015] whitespace-nowrap">
-                            <span
-                              className={`font-bold text-sm px-2.5 py-0.5 rounded-[3px] border ${
-                                !isShort
-                                  ? "bg-emerald-950/[0.06] text-emerald-800 border-emerald-600/25"
-                                  : onHand > 0
-                                  ? "bg-amber-500/10 text-amber-800 border-amber-500/30"
-                                  : "bg-[#c8102e]/10 text-[#c8102e] border-[#c8102e]/25"
-                              }`}
-                            >
-                              {formatQty(onHand)} {item.uom || "Kg"}
-                            </span>
-                          </td>
-
-                          {/* 5. Open PO (On Order) */}
-                          <td className="px-4 py-3.5 text-right font-mono-code whitespace-nowrap">
-                            {onOrder > 0 ? (
-                              <span className="font-bold text-xs px-2 py-0.5 rounded-[3px] bg-[#006D77]/10 text-[#006D77] border border-[#006D77]/25">
-                                +{formatQty(onOrder)} {item.uom || "Kg"}
-                              </span>
-                            ) : (
-                              <span className="text-[#8a8780]">0.00 {item.uom || "Kg"}</span>
-                            )}
-                          </td>
-
-                          {/* 6. Shortage / Qty To Purchase */}
-                          <td className="px-4 py-3.5 text-right bg-[#c8102e]/[0.03] whitespace-nowrap">
-                            {isShort ? (
-                              <div className="flex flex-col items-end gap-1">
-                                <span className="font-mono-code font-extrabold text-xs sm:text-sm px-3 py-1 rounded-[3px] bg-[#c8102e] text-white shadow-sm">
-                                  BUY {formatQty(toBuy)} {item.uom || "Kg"}
-                                </span>
-                                {onOrder > 0 && (
-                                  <span className="font-mono-code text-[10px] font-bold text-[#006D77]">
-                                    Net after Open PO: {formatQty(netAfterPo)} {item.uom || "Kg"}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="font-mono-code font-bold text-xs px-2.5 py-1 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
-                                ✓ Stock Sufficient (+{formatQty(surplus)} {item.uom || "Kg"} surplus)
-                              </span>
-                            )}
-                          </td>
-
-                          {/* 7. Last Pur. Rate & Est. Purchase Cost */}
-                          <td className="px-4 py-3.5 text-right font-mono-code whitespace-nowrap">
-                            <div className="font-bold text-sm text-[#1a1a1a]">
-                              {isShort ? (
-                                <span className="text-[#c8102e]">₹{formatInr(estCost)}</span>
-                              ) : (
-                                <span className="text-emerald-700">₹0.00</span>
-                              )}
-                            </div>
-                            <div className="text-[10.5px] text-[#6b6863]">
-                              @ ₹{formatInr(lastPur)} / {item.uom || "Kg"}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
       ) : filteredOrders.length === 0 ? (
@@ -1766,6 +1384,367 @@ export default function Production() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* =====================================================================
+          BOTTOM MRP BUTTON & MATERIAL REQUIREMENTS / PURCHASE PLAN SECTION
+      ===================================================================== */}
+      {!loading && (
+        <div ref={mrpSectionRef} className="pt-2 space-y-5">
+          <div
+            className="rp-card p-5 sm:p-6 bg-white"
+            style={{
+              borderLeft: `4px solid ${
+                computedMrp.shortageItemsCount > 0 ? "#c8102e" : "#006D77"
+              }`
+            }}
+          >
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] px-2.5 py-0.5 rounded-[3px] bg-[#1a1a1a] text-white">
+                    MATERIAL REQUIREMENTS &amp; PURCHASE PLAN (MRP)
+                  </span>
+                  <span className="font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.08]">
+                    {computedMrp.pendingOrdersCount} Pending Order(s)
+                  </span>
+                  <span className="font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-[3px] bg-[#006D77]/10 text-[#006D77] border border-[#006D77]/25">
+                    {mrpRequirements.length} Material(s) Required ({formatQty(computedMrp.totalRequiredKg)} Kg)
+                  </span>
+                  {computedMrp.shortageItemsCount > 0 ? (
+                    <span className="font-mono-code text-xs font-extrabold px-2.5 py-0.5 rounded-[3px] bg-[#c8102e]/10 text-[#c8102e] border border-[#c8102e]/30">
+                      {computedMrp.shortageItemsCount} Short · Buy {formatQty(computedMrp.totalShortageKg)} Kg
+                    </span>
+                  ) : (
+                    <span className="font-mono-code text-xs font-bold px-2.5 py-0.5 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
+                      ✓ All Materials in Stock
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[#6b6863]">
+                  Calculate total raw material &amp; SFG requirements across all open Production Orders, compare against live SAP stock, and view exact quantities to purchase.
+                </p>
+              </div>
+
+              <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showMrpBelow;
+                    setShowMrpBelow(next);
+                    if (next) {
+                      setTimeout(
+                        () =>
+                          mrpSectionRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start"
+                          }),
+                        100
+                      );
+                    }
+                  }}
+                  className={`rp-btn ${showMrpBelow ? "rp-btn-dark" : "rp-btn-red"} py-2.5 px-5 text-xs`}
+                >
+                  {showMrpBelow
+                    ? "Hide Material Requirements (MRP) ▲"
+                    : "Get Material Requirements & Purchase Plan (MRP) ▼"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {showMrpBelow && (
+        <div className="space-y-5">
+          {/* MRP Dedicated KPI Strip & Controls Card */}
+          <div className="rp-card p-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-black/[0.08]">
+              <div>
+                <div className="sec-label mb-1">
+                  MATERIAL REQUIREMENTS PLANNING (MRP) · OPEN PRODUCTION ORDERS (OWOR &amp; WOR1)
+                </div>
+                <h2 className="text-xl sm:text-2xl font-extrabold text-[#1a1a1a]">
+                  Pending Production Material Requirements &amp;{" "}
+                  <span className="italic-accent">To-Purchase Shortage Plan</span>
+                </h2>
+                <p className="text-xs text-[#6b6863] mt-1">
+                  Aggregates unissued component quantities across all open Production Orders (Status{" "}
+                  <code className="font-mono-code font-bold text-[#1a1a1a]">P</code> &amp;{" "}
+                  <code className="font-mono-code font-bold text-[#1a1a1a]">R</code>), compares
+                  against live SAP <code className="font-mono-code font-bold text-[#1a1a1a]">OITM.OnHand</code>{" "}
+                  stock, and calculates exact purchase shortages.
+                </p>
+              </div>
+
+              {/* Filter Toggle: All Required vs Shortages Only */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMrpFilter("ALL")}
+                  className={`px-3.5 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.07em] border cursor-pointer transition-all ${
+                    mrpFilter === "ALL"
+                      ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
+                      : "bg-[#faf9f7] text-[#444444] border-black/[0.12] hover:bg-[#f4f2ef]"
+                  }`}
+                >
+                  All Required Materials ({mrpRequirements.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMrpFilter("SHORTAGE")}
+                  className={`px-3.5 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.07em] border cursor-pointer transition-all ${
+                    mrpFilter === "SHORTAGE"
+                      ? "bg-[#c8102e] text-white border-[#c8102e]"
+                      : "bg-[#c8102e]/[0.06] text-[#c8102e] border-[#c8102e]/30 hover:bg-[#c8102e]/[0.12]"
+                  }`}
+                >
+                  Shortages / To Be Purchased Only ({computedMrp.shortageItemsCount})
+                </button>
+              </div>
+            </div>
+
+            {/* 4-Card MRP KPI Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
+              <div className="bg-[#faf9f7] border border-black/[0.08] rounded-[4px] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
+                  Pending Production Orders
+                </div>
+                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#1a1a1a] mt-1">
+                  {computedMrp.pendingOrdersCount}
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(computedMrp.pendingOrders || []).map(po => (
+                    <span
+                      key={po.doc_entry}
+                      className="font-mono-code text-[10px] font-bold px-1.5 py-0.2 rounded-[2px] bg-[#1a1a1a] text-white"
+                    >
+                      Ord #{po.doc_num} ({po.item_code})
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-[#006D77]/[0.05] border border-[#006D77]/25 rounded-[4px] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#006D77]">
+                  Total Materials Required
+                </div>
+                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#006D77] mt-1">
+                  {formatQty(computedMrp.totalRequiredKg)}{" "}
+                  <span className="text-xs font-bold">Kg</span>
+                </div>
+                <div className="text-[11px] text-[#6b6863] mt-0.5">
+                  Across {mrpRequirements.length} unique component(s)
+                </div>
+              </div>
+
+              <div className="bg-[#c8102e]/[0.05] border border-[#c8102e]/30 rounded-[4px] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#c8102e]">
+                  Materials in Shortage (To Purchase)
+                </div>
+                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#c8102e] mt-1">
+                  {computedMrp.shortageItemsCount} Item(s) ·{" "}
+                  {formatQty(computedMrp.totalShortageKg)}{" "}
+                  <span className="text-xs font-bold">Kg</span>
+                </div>
+                <div className="text-[11px] text-[#c8102e]/80 mt-0.5">
+                  Where Required Qty &gt; SAP Stock On Hand
+                </div>
+              </div>
+
+              <div className="bg-amber-500/[0.06] border border-amber-500/30 rounded-[4px] p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-amber-900">
+                  Est. Purchase Value (Shortage)
+                </div>
+                <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-amber-800 mt-1">
+                  ₹{formatInr(computedMrp.totalEstimatedPurchaseCost)}
+                </div>
+                <div className="text-[11px] text-amber-900/75 mt-0.5">
+                  Valued at SAP Last Purchase Price
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed MRP Table */}
+          <div className="rp-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-black/[0.08]">
+                <thead className="bg-[#f4f2ef]">
+                  <tr>
+                    <th className="px-4 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
+                      SAP Code &amp; Material Description
+                    </th>
+                    <th className="px-4 py-3.5 text-left text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
+                      Pending Orders Breakdown
+                    </th>
+                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#1a1a1a] uppercase tracking-[0.1em] bg-black/[0.02]">
+                      Total Qty Required
+                    </th>
+                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-emerald-800 uppercase tracking-[0.1em] bg-emerald-950/[0.04]">
+                      Available Stock (On Hand)
+                    </th>
+                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em]">
+                      Open PO (On Order)
+                    </th>
+                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.05]">
+                      Shortage / Qty To Purchase
+                    </th>
+                    <th className="px-4 py-3.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
+                      Last Pur. Rate &amp; Est. Purchase Cost
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-black/[0.06] text-xs">
+                  {filteredMrpRequirements.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="p-10 text-center text-[#6b6863] italic text-sm">
+                        {mrpFilter === "SHORTAGE"
+                          ? "No material shortages found — all required materials are sufficiently covered by current SAP stock!"
+                          : "No pending material requirements found across open Production Orders."}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMrpRequirements.map(item => {
+                      const reqQty = Number(item.required_qty || 0);
+                      const onHand = Number(item.on_hand || 0);
+                      const onOrder = Number(item.on_order || 0);
+                      const toBuy = Number(item.to_purchase_qty || 0);
+                      const surplus = Number(item.surplus_qty || 0);
+                      const netAfterPo = Number(item.net_after_po_qty || 0);
+                      const lastPur = Number(item.last_purchase_cost || 0);
+                      const estCost = Number(item.estimated_purchase_cost || 0);
+                      const isShort = toBuy > 0.0001;
+
+                      return (
+                        <tr
+                          key={item.code}
+                          className={`hover:bg-[#faf9f7] transition-colors ${
+                            isShort ? "bg-[#c8102e]/[0.02]" : ""
+                          }`}
+                        >
+                          {/* 1. SAP Code & Material Description */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono-code text-xs font-extrabold px-2.5 py-1 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.1]">
+                                {item.code}
+                              </span>
+                              <span
+                                className={`text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-[2px] ${
+                                  item.item_type === "SFG"
+                                    ? "bg-[#006D77]/10 text-[#006D77]"
+                                    : "bg-black/[0.06] text-[#444444]"
+                                }`}
+                              >
+                                {item.item_type || "RM"}
+                              </span>
+                            </div>
+                            <div className="font-bold text-sm text-[#1a1a1a] mt-1">
+                              {item.name}
+                            </div>
+                          </td>
+
+                          {/* 2. Pending Orders Breakdown */}
+                          <td className="px-4 py-3.5">
+                            <div className="flex flex-wrap gap-1.5">
+                              {(item.pending_orders || []).map((po, idx) => (
+                                <span
+                                  key={`${po.doc_entry}_${idx}`}
+                                  className="font-mono-code text-[11px] font-semibold px-2 py-1 rounded-[3px] bg-[#faf9f7] text-[#1a1a1a] border border-black/[0.1]"
+                                  title={`Order #${po.doc_num} — ${po.parent_name} (WH ${po.warehouse || "01"})`}
+                                >
+                                  Order #{po.doc_num} ({po.parent_code}):{" "}
+                                  <strong className="text-[#c8102e]">
+                                    {formatQty(po.pending_qty)} {item.uom || "Kg"}
+                                  </strong>
+                                  {po.via_sfg && (
+                                    <span className="text-[#006D77] ml-1">
+                                      [via {po.via_sfg}]
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* 3. Total Qty Required */}
+                          <td className="px-4 py-3.5 text-right font-mono-code font-extrabold text-sm text-[#1a1a1a] bg-black/[0.015] whitespace-nowrap">
+                            {formatQty(reqQty)} {item.uom || "Kg"}
+                            {Number(item.sfg_exploded_qty || 0) > 0.0001 && (
+                              <div className="text-[10px] font-normal text-[#006D77]">
+                                Incl. {formatQty(item.sfg_exploded_qty)} Kg via SFG BOM
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 4. Available Stock (On Hand) */}
+                          <td className="px-4 py-3.5 text-right font-mono-code bg-emerald-950/[0.015] whitespace-nowrap">
+                            <span
+                              className={`font-bold text-sm px-2.5 py-0.5 rounded-[3px] border ${
+                                !isShort
+                                  ? "bg-emerald-950/[0.06] text-emerald-800 border-emerald-600/25"
+                                  : onHand > 0
+                                  ? "bg-amber-500/10 text-amber-800 border-amber-500/30"
+                                  : "bg-[#c8102e]/10 text-[#c8102e] border-[#c8102e]/25"
+                              }`}
+                            >
+                              {formatQty(onHand)} {item.uom || "Kg"}
+                            </span>
+                          </td>
+
+                          {/* 5. Open PO (On Order) */}
+                          <td className="px-4 py-3.5 text-right font-mono-code whitespace-nowrap">
+                            {onOrder > 0 ? (
+                              <span className="font-bold text-xs px-2 py-0.5 rounded-[3px] bg-[#006D77]/10 text-[#006D77] border border-[#006D77]/25">
+                                +{formatQty(onOrder)} {item.uom || "Kg"}
+                              </span>
+                            ) : (
+                              <span className="text-[#8a8780]">0.00 {item.uom || "Kg"}</span>
+                            )}
+                          </td>
+
+                          {/* 6. Shortage / Qty To Purchase */}
+                          <td className="px-4 py-3.5 text-right bg-[#c8102e]/[0.03] whitespace-nowrap">
+                            {isShort ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <span className="font-mono-code font-extrabold text-xs sm:text-sm px-3 py-1 rounded-[3px] bg-[#c8102e] text-white shadow-sm">
+                                  BUY {formatQty(toBuy)} {item.uom || "Kg"}
+                                </span>
+                                {onOrder > 0 && (
+                                  <span className="font-mono-code text-[10px] font-bold text-[#006D77]">
+                                    Net after Open PO: {formatQty(netAfterPo)} {item.uom || "Kg"}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="font-mono-code font-bold text-xs px-2.5 py-1 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
+                                ✓ Stock Sufficient (+{formatQty(surplus)} {item.uom || "Kg"} surplus)
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 7. Last Pur. Rate & Est. Purchase Cost */}
+                          <td className="px-4 py-3.5 text-right font-mono-code whitespace-nowrap">
+                            <div className="font-bold text-sm text-[#1a1a1a]">
+                              {isShort ? (
+                                <span className="text-[#c8102e]">₹{formatInr(estCost)}</span>
+                              ) : (
+                                <span className="text-emerald-700">₹0.00</span>
+                              )}
+                            </div>
+                            <div className="text-[10.5px] text-[#6b6863]">
+                              @ ₹{formatInr(lastPur)} / {item.uom || "Kg"}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+          )}
         </div>
       )}
 
