@@ -291,6 +291,7 @@ router.get("/available-items", async (req, res) => {
       SELECT 
         T0."ItemCode" AS "code",
         T0."ItemName" AS "name",
+        T0."FrgnName" AS "foreign_name",
         T0."ItmsGrpCod" AS "item_group",
         COALESCE(T0."Phantom", 'N') AS "phantom",
         CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
@@ -375,6 +376,7 @@ router.get("/goods", async (req, res) => {
         T0."Code" AS "id",
         T0."Code" AS "code",
         COALESCE(P."ItemName", T0."Name", T0."Code") AS "name",
+        P."FrgnName" AS "foreign_name",
         CAST(T0."Qauntity" AS DOUBLE) AS "batch_qty",
         T0."TreeType" AS "bom_type",
         T0."ToWH" AS "warehouse",
@@ -417,6 +419,7 @@ router.get("/boms/all", async (req, res) => {
         T1."Code" AS "item_code",
         COALESCE(C."ItemName", T1."Code") AS "raw_name",
         COALESCE(C."ItemName", T1."Code") AS "child_name",
+        C."FrgnName" AS "foreign_name",
         COALESCE(C."InvntryUom", 'Kg') AS "raw_uom",
         T1."Warehouse" AS "warehouse",
         T1."IssueMthd" AS "issue_method",

@@ -6,7 +6,14 @@ const DEFAULT_WAREHOUSES = [
   { code: "10", name: "Pathancheru" }
 ];
 
-export default function BOM() {
+export default function BOM({ user }) {
+  const canViewForeignName = Boolean(
+    user &&
+      (user.superuser === "Y" ||
+        ["manager", "manager1", "superuser3"].includes(
+          String(user.username || "").trim().toLowerCase()
+        ))
+  );
   const [goods, setGoods] = useState([]);
   const [allBoms, setAllBoms] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
@@ -454,6 +461,11 @@ export default function BOM() {
                 </span>
                 <span className={level > 0 ? "text-[#444444] font-medium" : "text-[#1a1a1a] font-semibold"}>
                   {b.name}
+                  {canViewForeignName && b.foreign_name && String(b.foreign_name).trim() && (
+                    <span className="text-xs font-semibold text-[#006D77] ml-1.5">
+                      — {String(b.foreign_name).trim()}
+                    </span>
+                  )}
                 </span>
                 {b.warehouse && (
                   <span className="font-mono-code text-[10.5px] font-medium bg-[#faf9f7] text-[#6b6863] px-1.5 py-0.5 rounded-[3px] border border-black/[0.08]">
@@ -592,19 +604,25 @@ export default function BOM() {
               <option value="ALL_FG">All Finished Goods ({finishedGoodsList.length})</option>
               <option value="ALL_SFG">All Sub-Assemblies ({subAssembliesList.length})</option>
               <optgroup label="Finished Goods (FG)">
-                {finishedGoodsList.map(g => (
-                  <option key={g.id} value={g.id}>
-                    {g.code} — {g.name}
-                  </option>
-                ))}
+                {finishedGoodsList.map(g => {
+                  const fName = canViewForeignName && g.foreign_name && String(g.foreign_name).trim() ? ` (${String(g.foreign_name).trim()})` : "";
+                  return (
+                    <option key={g.id} value={g.id}>
+                      {g.code} — {g.name}{fName}
+                    </option>
+                  );
+                })}
               </optgroup>
               {subAssembliesList.length > 0 && (
                 <optgroup label="Sub-Assemblies (SFG)">
-                  {subAssembliesList.map(g => (
-                    <option key={g.id} value={g.id}>
-                      {g.code} — {g.name}
-                    </option>
-                  ))}
+                  {subAssembliesList.map(g => {
+                    const fName = canViewForeignName && g.foreign_name && String(g.foreign_name).trim() ? ` (${String(g.foreign_name).trim()})` : "";
+                    return (
+                      <option key={g.id} value={g.id}>
+                        {g.code} — {g.name}{fName}
+                      </option>
+                    );
+                  })}
                 </optgroup>
               )}
             </select>
@@ -729,6 +747,11 @@ export default function BOM() {
 
                       <span className="font-bold text-base sm:text-lg text-[#1a1a1a] tracking-[-0.01em]">
                         {g.name}
+                        {canViewForeignName && g.foreign_name && String(g.foreign_name).trim() && (
+                          <span className="text-sm font-semibold text-[#006D77] ml-2">
+                            — {String(g.foreign_name).trim()}
+                          </span>
+                        )}
                       </span>
 
                       {g.warehouse && (
@@ -958,18 +981,24 @@ export default function BOM() {
                       >
                         <option value="">-- Select FG or Semi-Finished Good --</option>
                         <optgroup label={`Finished Goods (FG — ${availableItems.filter(i => !i.is_intermediate).length})`}>
-                          {availableItems.filter(i => !i.is_intermediate).map(item => (
-                            <option key={item.code} value={item.code}>
-                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
-                            </option>
-                          ))}
+                          {availableItems.filter(i => !i.is_intermediate).map(item => {
+                            const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
+                            return (
+                              <option key={item.code} value={item.code}>
+                                {item.code} — {item.name}{fName} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
+                              </option>
+                            );
+                          })}
                         </optgroup>
                         <optgroup label={`Semi-Finished Goods (SFG — ${availableItems.filter(i => i.is_intermediate).length})`}>
-                          {availableItems.filter(i => i.is_intermediate).map(item => (
-                            <option key={item.code} value={item.code}>
-                              {item.code} — {item.name} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
-                            </option>
-                          ))}
+                          {availableItems.filter(i => i.is_intermediate).map(item => {
+                            const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
+                            return (
+                              <option key={item.code} value={item.code}>
+                                {item.code} — {item.name}{fName} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
+                              </option>
+                            );
+                          })}
                         </optgroup>
                       </select>
                     </div>

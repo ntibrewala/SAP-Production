@@ -39,8 +39,8 @@ function App() {
         }}
       >
         <Routes>
-          <Route path="/production" element={<Production />} />
-          <Route path="/bom" element={<BOM />} />
+          <Route path="/production" element={<Production user={user} />} />
+          <Route path="/bom" element={<BOM user={user} />} />
           <Route path="/raw-materials" element={<RawMaterials />} />
           <Route path="*" element={<Navigate to="/production" replace />} />
         </Routes>
