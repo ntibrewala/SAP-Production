@@ -99,11 +99,37 @@ export default function BOM({ user }) {
     fetchData();
   }, []);
 
-  // Filter goods according to the dropdown selection
-  const filteredGoods = goods.filter(g => {
+  // Merge OITT BOM goods with OITM FG/SFG items that do not have a BOM yet (e.g. newly added FG0019)
+  const allProducts = [
+    ...goods.map(g => ({ ...g, has_bom: 1 })),
+    ...availableItems
+      .filter(a => !goods.some(g => g.code === a.code))
+      .map(a => ({
+        id: a.code,
+        code: a.code,
+        name: a.name || a.code,
+        foreign_name: a.foreign_name || null,
+        batch_qty: 0,
+        bom_type: "iProductionTree",
+        warehouse: a.warehouse || "01",
+        phantom: a.phantom || "N",
+        on_hand: Number(a.on_hand || 0),
+        prod_std_cost: Number(a.prod_std_cost || 0),
+        last_purchase_cost: Number(a.last_purchase_cost || 0),
+        is_intermediate: Number(a.is_intermediate || 0),
+        has_bom: 0
+      }))
+  ].sort((a, b) => {
+    if (a.is_intermediate !== b.is_intermediate) return a.is_intermediate - b.is_intermediate;
+    return String(a.code).localeCompare(String(b.code));
+  });
+
+  // Filter products according to the dropdown selection
+  const filteredGoods = allProducts.filter(g => {
     if (selectedFilter === "ALL") return true;
     if (selectedFilter === "ALL_FG") return g.is_intermediate === 0;
     if (selectedFilter === "ALL_SFG") return g.is_intermediate === 1;
+    if (selectedFilter === "NO_BOM") return g.has_bom === 0;
     return g.id === selectedFilter;
   });
 
@@ -111,7 +137,7 @@ export default function BOM({ user }) {
     const val = e.target.value;
     setSelectedFilter(val);
 
-    if (val !== "ALL" && val !== "ALL_FG" && val !== "ALL_SFG") {
+    if (val !== "ALL" && val !== "ALL_FG" && val !== "ALL_SFG" && val !== "NO_BOM") {
       setExpandedAccordions({ [val]: true });
       const subNodes = {};
       allBoms
@@ -262,25 +288,58 @@ export default function BOM({ user }) {
   };
 
   // --- Open Modal for Adding a New BOM (for an existing SAP Item Master) ---
-  const openAddBomModal = () => {
+  const openAddBomModal = async (preselectedCode = "") => {
+    const requestedCode = typeof preselectedCode === "string" ? preselectedCode.trim() : "";
     setEditMode(false);
     setModalError(null);
     const defaultWh = warehouses[0]?.code || "01";
-    const itemsWithoutBom = availableItems.filter(i => i.has_bom === 0);
-    const defaultItem = itemsWithoutBom[0] || availableItems[0] || null;
+    const itemsWithoutBom = availableItems.filter(i => Number(i.has_bom) === 0);
+    const matchedRequested = requestedCode
+      ? availableItems.find(i => i.code === requestedCode) ||
+        allProducts.find(i => i.code === requestedCode)
+      : null;
+    const defaultItem = matchedRequested || itemsWithoutBom[0] || availableItems[0] || null;
 
-    setFormTreeCode(defaultItem ? defaultItem.code : "");
+    setFormTreeCode(defaultItem ? defaultItem.code : requestedCode);
     setFormItemName(defaultItem ? defaultItem.name : "");
-    setFormWarehouse(defaultWh);
+    setFormWarehouse(defaultItem?.warehouse || defaultWh);
     setFormLines([
       {
         compType: "raw",
         itemCode: rawMaterials[0]?.code || "",
         quantity: "",
-        warehouse: defaultWh
+        warehouse: defaultItem?.warehouse || defaultWh
       }
     ]);
     setShowModal(true);
+
+    // Fetch latest available items from SAP OITM so newly added items in SAP appear immediately
+    try {
+      const res = await fetch(`/api/materials/available-items?_t=${Date.now()}`, {
+        cache: "no-store"
+      });
+      if (res.ok) {
+        const freshAvail = await res.json();
+        if (Array.isArray(freshAvail) && freshAvail.length > 0) {
+          setAvailableItems(freshAvail);
+          if (requestedCode) {
+            const found = freshAvail.find(i => i.code === requestedCode);
+            if (found) {
+              setFormTreeCode(found.code);
+              setFormItemName(found.name || "");
+            }
+          } else if (!defaultItem) {
+            const firstNoBom = freshAvail.find(i => Number(i.has_bom) === 0) || freshAvail[0];
+            if (firstNoBom) {
+              setFormTreeCode(firstNoBom.code);
+              setFormItemName(firstNoBom.name || "");
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore background refresh error
+    }
   };
 
   // --- Open Modal for Editing an Existing BOM ---
@@ -525,8 +584,9 @@ export default function BOM({ user }) {
     });
   };
 
-  const finishedGoodsList = goods.filter(g => g.is_intermediate === 0);
-  const subAssembliesList = goods.filter(g => g.is_intermediate === 1);
+  const finishedGoodsList = allProducts.filter(g => g.is_intermediate === 0);
+  const subAssembliesList = allProducts.filter(g => g.is_intermediate === 1);
+  const itemsWithoutBomList = allProducts.filter(g => g.has_bom === 0);
   const sfgOptions = availableItems.filter(i => i.is_intermediate === 1 && i.code !== formTreeCode);
 
   const modalTotalQty = formLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0), 0);
@@ -600,15 +660,33 @@ export default function BOM({ user }) {
               onChange={handleFilterChange}
               className="border border-black/[0.15] rounded-[4px] px-3.5 py-2 text-xs sm:text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none min-w-[260px]"
             >
-              <option value="ALL">All BOMs ({goods.length})</option>
+              <option value="ALL">All Products &amp; BOMs ({allProducts.length})</option>
               <option value="ALL_FG">All Finished Goods ({finishedGoodsList.length})</option>
               <option value="ALL_SFG">All Sub-Assemblies ({subAssembliesList.length})</option>
+              {itemsWithoutBomList.length > 0 && (
+                <option value="NO_BOM">
+                  Items Without BOM Yet — Pending Setup ({itemsWithoutBomList.length})
+                </option>
+              )}
+              {itemsWithoutBomList.length > 0 && (
+                <optgroup label={`Items Without BOM Yet (${itemsWithoutBomList.length})`}>
+                  {itemsWithoutBomList.map(g => {
+                    const fName = canViewForeignName && g.foreign_name && String(g.foreign_name).trim() ? ` (${String(g.foreign_name).trim()})` : "";
+                    return (
+                      <option key={`nobom_${g.id}`} value={g.id}>
+                        {g.code} — {g.name}{fName} [NO BOM YET]
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
               <optgroup label="Finished Goods (FG)">
                 {finishedGoodsList.map(g => {
                   const fName = canViewForeignName && g.foreign_name && String(g.foreign_name).trim() ? ` (${String(g.foreign_name).trim()})` : "";
+                  const noBomTag = g.has_bom === 0 ? " [NO BOM YET]" : "";
                   return (
                     <option key={g.id} value={g.id}>
-                      {g.code} — {g.name}{fName}
+                      {g.code} — {g.name}{fName}{noBomTag}
                     </option>
                   );
                 })}
@@ -617,9 +695,10 @@ export default function BOM({ user }) {
                 <optgroup label="Sub-Assemblies (SFG)">
                   {subAssembliesList.map(g => {
                     const fName = canViewForeignName && g.foreign_name && String(g.foreign_name).trim() ? ` (${String(g.foreign_name).trim()})` : "";
+                    const noBomTag = g.has_bom === 0 ? " [NO BOM YET]" : "";
                     return (
                       <option key={g.id} value={g.id}>
-                        {g.code} — {g.name}{fName}
+                        {g.code} — {g.name}{fName}{noBomTag}
                       </option>
                     );
                   })}
@@ -629,7 +708,7 @@ export default function BOM({ user }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <button onClick={openAddBomModal} className="rp-btn rp-btn-red">
+            <button onClick={() => openAddBomModal("")} className="rp-btn rp-btn-red">
               + Add BOM
             </button>
             <button onClick={expandAll} className="rp-btn rp-btn-outline">
@@ -765,6 +844,12 @@ export default function BOM({ user }) {
                           {g.phantom === "Y" ? "Phantom Sub-Assembly" : "Sub-Assembly"}
                         </span>
                       )}
+
+                      {(g.has_bom === 0 || bomData.items.length === 0) && (
+                        <span className="text-[10px] font-bold uppercase tracking-[0.08em] bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-[3px] border border-amber-300">
+                          NO BOM YET
+                        </span>
+                      )}
                     </div>
 
                     {/* Right Metrics Strip */}
@@ -800,12 +885,24 @@ export default function BOM({ user }) {
                         </div>
                       </div>
 
-                      <button
-                        onClick={(e) => openEditBomModal(g, e)}
-                        className="rp-btn rp-btn-outline py-1.5 px-3 text-[10.5px]"
-                      >
-                        Edit BOM
-                      </button>
+                      {g.has_bom === 0 || bomData.items.length === 0 ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openAddBomModal(g.code);
+                          }}
+                          className="rp-btn rp-btn-red py-1.5 px-3 text-[10.5px]"
+                        >
+                          + Create BOM
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => openEditBomModal(g, e)}
+                          className="rp-btn rp-btn-outline py-1.5 px-3 text-[10.5px]"
+                        >
+                          Edit BOM
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -842,8 +939,20 @@ export default function BOM({ user }) {
                           <tbody className="bg-white divide-y divide-black/[0.06]">
                             {bomData.items.length === 0 ? (
                               <tr>
-                                <td colSpan="7" className="p-8 text-center text-[#6b6863] italic text-sm">
-                                  No components found for this BOM in SAP.
+                                <td colSpan="7" className="p-8 text-center text-[#6b6863] text-sm">
+                                  <div className="flex flex-col items-center justify-center gap-3">
+                                    <span>
+                                      No Bill of Materials (BOM) is configured yet for{" "}
+                                      <strong className="text-[#1a1a1a] font-mono-code">{g.code}</strong> ({g.name}) in SAP (<code className="font-mono-code">OITT</code>).
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAddBomModal(g.code)}
+                                      className="rp-btn rp-btn-red"
+                                    >
+                                      + Create BOM for {g.code}
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ) : (
@@ -980,6 +1089,18 @@ export default function BOM({ user }) {
                         required
                       >
                         <option value="">-- Select FG or Semi-Finished Good --</option>
+                        {availableItems.filter(i => Number(i.has_bom) === 0).length > 0 && (
+                          <optgroup label={`Items Without BOM Yet — New in SAP (${availableItems.filter(i => Number(i.has_bom) === 0).length})`}>
+                            {availableItems.filter(i => Number(i.has_bom) === 0).map(item => {
+                              const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
+                              return (
+                                <option key={`new_${item.code}`} value={item.code}>
+                                  ★ {item.code} — {item.name}{fName} (No BOM Yet)
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
                         <optgroup label={`Finished Goods (FG — ${availableItems.filter(i => !i.is_intermediate).length})`}>
                           {availableItems.filter(i => !i.is_intermediate).map(item => {
                             const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
