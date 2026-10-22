@@ -158,6 +158,326 @@ router.get("/", async (req, res) => {
   }
 });
 
+// --- GET /api/production/mrp: Material Requirement & Purchase Shortage Calculator across all Open Production Orders ---
+router.get("/mrp", async (req, res) => {
+  try {
+    const openOrdersSql = `
+      SELECT 
+        T0."DocEntry" AS "doc_entry",
+        T0."DocNum" AS "doc_num",
+        T0."ItemCode" AS "item_code",
+        COALESCE(T1."ItemName", T0."ProdName", T0."ItemCode") AS "item_name",
+        COALESCE(T1."InvntryUom", 'Kg') AS "uom",
+        T0."Status" AS "status_code",
+        CASE 
+          WHEN T0."Status" = 'P' THEN 'Planned'
+          WHEN T0."Status" = 'R' THEN 'Released'
+          ELSE T0."Status"
+        END AS "status",
+        CAST(COALESCE(T0."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
+        CAST(COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "completed_qty",
+        CAST(COALESCE(T0."PlannedQty", 0) - COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "pending_qty",
+        T0."Warehouse" AS "warehouse",
+        T0."PostDate" AS "post_date",
+        T0."DueDate" AS "due_date",
+        CASE 
+          WHEN T1."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T1."ItmsGrpCod" = 107 THEN 1 
+          ELSE 0 
+        END AS "is_intermediate"
+      FROM "OWOR" T0
+      LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
+      WHERE T0."Status" IN ('P', 'R')
+        AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
+      ORDER BY T0."DocNum" ASC
+    `;
+
+    const openWorLinesSql = `
+      SELECT 
+        T1."ItemCode" AS "item_code",
+        T0."DocEntry" AS "doc_entry",
+        T0."DocNum" AS "doc_num",
+        T0."ItemCode" AS "parent_code",
+        COALESCE(P."ItemName", T0."ProdName", T0."ItemCode") AS "parent_name",
+        CAST(T1."PlannedQty" - COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "pending_qty",
+        CAST(COALESCE(T1."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
+        CAST(COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "issued_qty",
+        T1."wareHouse" AS "warehouse"
+      FROM "WOR1" T1
+      INNER JOIN "OWOR" T0 ON T1."DocEntry" = T0."DocEntry"
+      LEFT JOIN "OITM" P ON T0."ItemCode" = P."ItemCode"
+      WHERE T0."Status" IN ('P', 'R')
+        AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
+        AND (COALESCE(T1."PlannedQty", 0) - COALESCE(T1."IssuedQty", 0)) > 0.0001
+      ORDER BY T0."DocNum" ASC, T1."LineNum" ASC
+    `;
+
+    const itemsMasterSql = `
+      SELECT 
+        T0."ItemCode" AS "code",
+        T0."ItemName" AS "name",
+        COALESCE(T0."InvntryUom", 'Kg') AS "uom",
+        T0."ItmsGrpCod" AS "item_group",
+        COALESCE(T0."Phantom", 'N') AS "phantom",
+        CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
+        CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), NULLIF(T0."PrdStdCst", 0), 0) AS DOUBLE) AS "last_purchase_cost",
+        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
+        CAST(COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "is_committed",
+        CAST(COALESCE(T0."OnOrder", 0) AS DOUBLE) AS "on_order",
+        CAST(COALESCE(T0."OnHand", 0) - COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "available_stock",
+        CAST(COALESCE(W01."OnHand", 0) AS DOUBLE) AS "wh_01_stock",
+        CAST(COALESCE(W8."OnHand", 0) AS DOUBLE) AS "wh_8_stock",
+        CAST(COALESCE(W10."OnHand", 0) AS DOUBLE) AS "wh_10_stock"
+      FROM "OITM" T0
+      LEFT JOIN (
+        SELECT "ItemCode", "Price"
+        FROM (
+          SELECT 
+            "ItemCode", 
+            "Price",
+            ROW_NUMBER() OVER (PARTITION BY "ItemCode" ORDER BY "TransNum" DESC) AS "rn"
+          FROM "OINM"
+          WHERE "InQty" > 0 AND "Price" > 0
+        )
+        WHERE "rn" = 1
+      ) LC ON T0."ItemCode" = LC."ItemCode"
+      LEFT JOIN "OITW" W01 ON T0."ItemCode" = W01."ItemCode" AND W01."WhsCode" = '01'
+      LEFT JOIN "OITW" W8 ON T0."ItemCode" = W8."ItemCode" AND W8."WhsCode" = '8'
+      LEFT JOIN "OITW" W10 ON T0."ItemCode" = W10."ItemCode" AND W10."WhsCode" = '10'
+      WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" IN (101, 107)
+      ORDER BY T0."ItemCode" ASC
+    `;
+
+    const sfgBomsSql = `
+      SELECT 
+        T0."Code" AS "sfg_code",
+        CAST(COALESCE(T0."Qauntity", 0) AS DOUBLE) AS "header_qty",
+        T1."Code" AS "comp_code",
+        CAST(COALESCE(T1."Quantity", 0) AS DOUBLE) AS "comp_qty",
+        T1."Warehouse" AS "warehouse"
+      FROM "OITT" T0
+      INNER JOIN "ITT1" T1 ON T0."Code" = T1."Father"
+    `;
+
+    const [[pendingOrders], [worLines], [itemsRows], [bomRows]] = await Promise.all([
+      db.query(openOrdersSql),
+      db.query(openWorLinesSql),
+      db.query(itemsMasterSql),
+      db.query(sfgBomsSql)
+    ]);
+
+    const itemMap = {};
+    for (const it of itemsRows || []) {
+      itemMap[it.code] = it;
+    }
+
+    const bomByFather = {};
+    for (const b of bomRows || []) {
+      if (!bomByFather[b.sfg_code]) {
+        bomByFather[b.sfg_code] = {
+          headerQty: Number(b.header_qty || 0),
+          lines: []
+        };
+      }
+      bomByFather[b.sfg_code].lines.push(b);
+    }
+
+    const scheduledSfgMap = {};
+    for (const o of pendingOrders || []) {
+      if (o.is_intermediate === 1 || String(o.item_code || "").toUpperCase().startsWith("SFG")) {
+        scheduledSfgMap[o.item_code] =
+          (scheduledSfgMap[o.item_code] || 0) + Math.max(0, Number(o.pending_qty || 0));
+      }
+    }
+
+    const directReqMap = {};
+    const explodedReqMap = {};
+    const pendingOrdersMap = {};
+    const sfgDemandMap = {};
+
+    for (const line of worLines || []) {
+      const code = line.item_code;
+      const pendingQty = Math.max(0, Number(line.pending_qty || 0));
+      if (pendingQty <= 0.0001) continue;
+
+      const meta = itemMap[code] || {};
+      const isSfg =
+        String(code || "").toUpperCase().startsWith("SFG") ||
+        Number(meta.item_group) === 107 ||
+        meta.phantom === "Y" ||
+        Boolean(bomByFather[code]);
+
+      directReqMap[code] = (directReqMap[code] || 0) + pendingQty;
+      if (!pendingOrdersMap[code]) pendingOrdersMap[code] = [];
+      pendingOrdersMap[code].push({
+        doc_entry: line.doc_entry,
+        doc_num: line.doc_num,
+        parent_code: line.parent_code,
+        parent_name: line.parent_name,
+        pending_qty: pendingQty,
+        warehouse: line.warehouse || "01",
+        via_sfg: null
+      });
+
+      if (isSfg && bomByFather[code]) {
+        if (!sfgDemandMap[code]) {
+          sfgDemandMap[code] = {
+            sfgCode: code,
+            onHand: Number(meta.on_hand || 0),
+            totalPendingQty: 0,
+            orders: []
+          };
+        }
+        sfgDemandMap[code].totalPendingQty += pendingQty;
+        sfgDemandMap[code].orders.push({
+          doc_entry: line.doc_entry,
+          doc_num: line.doc_num,
+          parent_code: line.parent_code,
+          parent_name: line.parent_name,
+          pending_qty: pendingQty,
+          warehouse: line.warehouse || "01"
+        });
+      }
+    }
+
+    const explodeSfgShortage = (sfgCode, shortageQty, sourceOrders, visited = new Set()) => {
+      if (shortageQty <= 0.0001 || visited.has(sfgCode)) return;
+      const bom = bomByFather[sfgCode];
+      if (!bom || !bom.lines || bom.lines.length === 0) return;
+
+      const nextVisited = new Set(visited);
+      nextVisited.add(sfgCode);
+
+      const sumLineQty = bom.lines.reduce((acc, l) => acc + Number(l.comp_qty || 0), 0);
+      const baseHeaderQty = bom.headerQty > 0 ? bom.headerQty : sumLineQty > 0 ? sumLineQty : 1;
+      const totalSourceDemand = sourceOrders.reduce((acc, o) => acc + o.pending_qty, 0) || 1;
+
+      for (const comp of bom.lines) {
+        const compCode = comp.comp_code;
+        const ratio = Number(comp.comp_qty || 0) / baseHeaderQty;
+        const neededCompQty = shortageQty * ratio;
+        if (neededCompQty <= 0.0001) continue;
+
+        const compMeta = itemMap[compCode] || {};
+        const compIsSfg =
+          String(compCode || "").toUpperCase().startsWith("SFG") ||
+          Number(compMeta.item_group) === 107 ||
+          Boolean(bomByFather[compCode]);
+
+        if (compIsSfg && bomByFather[compCode]) {
+          const nestedOnHand = Number(compMeta.on_hand || 0);
+          const nestedScheduled = Number(scheduledSfgMap[compCode] || 0);
+          const nestedShortage = Math.max(0, neededCompQty - nestedOnHand - nestedScheduled);
+          explodeSfgShortage(compCode, nestedShortage, sourceOrders, nextVisited);
+        } else {
+          explodedReqMap[compCode] = (explodedReqMap[compCode] || 0) + neededCompQty;
+          if (!pendingOrdersMap[compCode]) pendingOrdersMap[compCode] = [];
+          for (const ord of sourceOrders) {
+            const share = ord.pending_qty / totalSourceDemand;
+            pendingOrdersMap[compCode].push({
+              doc_entry: ord.doc_entry,
+              doc_num: ord.doc_num,
+              parent_code: ord.parent_code,
+              parent_name: ord.parent_name,
+              pending_qty: neededCompQty * share,
+              warehouse: comp.warehouse || ord.warehouse || "01",
+              via_sfg: sfgCode
+            });
+          }
+        }
+      }
+    };
+
+    for (const sfgInfo of Object.values(sfgDemandMap)) {
+      const scheduledQty = Number(scheduledSfgMap[sfgInfo.sfgCode] || 0);
+      const sfgShortage = Math.max(0, sfgInfo.totalPendingQty - sfgInfo.onHand - scheduledQty);
+      if (sfgShortage > 0.0001) {
+        explodeSfgShortage(sfgInfo.sfgCode, sfgShortage, sfgInfo.orders);
+      }
+    }
+
+    const allRequiredCodes = new Set([
+      ...Object.keys(directReqMap),
+      ...Object.keys(explodedReqMap)
+    ]);
+
+    const requirements = Array.from(allRequiredCodes)
+      .map((code) => {
+        const meta = itemMap[code] || {};
+        const isSfg =
+          String(code || "").toUpperCase().startsWith("SFG") ||
+          Number(meta.item_group) === 107 ||
+          meta.phantom === "Y";
+        const directReq = Number(directReqMap[code] || 0);
+        const sfgExplodedReq = Number(explodedReqMap[code] || 0);
+        const requiredQty = directReq + sfgExplodedReq;
+        const onHand = Number(meta.on_hand || 0);
+        const onOrder = Number(meta.on_order || 0);
+        const isCommitted = Number(meta.is_committed || 0);
+        const availableStock = Number(meta.available_stock ?? onHand - isCommitted);
+        const toPurchaseQty = Math.max(0, requiredQty - onHand);
+        const netAfterPoQty = Math.max(0, toPurchaseQty - onOrder);
+        const surplusQty = Math.max(0, onHand - requiredQty);
+        const lastPurCost = Number(meta.last_purchase_cost || 0);
+        const prodStdCost = Number(meta.prod_std_cost || 0);
+        const estPurchaseCost = toPurchaseQty * lastPurCost;
+
+        return {
+          code,
+          name: meta.name || code,
+          uom: meta.uom || "Kg",
+          item_type: isSfg ? "SFG" : "RM",
+          direct_required_qty: directReq,
+          sfg_exploded_qty: sfgExplodedReq,
+          required_qty: requiredQty,
+          on_hand: onHand,
+          on_order: onOrder,
+          is_committed: isCommitted,
+          available_stock: availableStock,
+          to_purchase_qty: toPurchaseQty,
+          net_after_po_qty: netAfterPoQty,
+          surplus_qty: surplusQty,
+          last_purchase_cost: lastPurCost,
+          prod_std_cost: prodStdCost,
+          estimated_purchase_cost: estPurchaseCost,
+          warehouse_stocks: {
+            "01": Number(meta.wh_01_stock || 0),
+            "8": Number(meta.wh_8_stock || 0),
+            "10": Number(meta.wh_10_stock || 0)
+          },
+          pending_orders: pendingOrdersMap[code] || []
+        };
+      })
+      .filter((r) => r.required_qty > 0.0001)
+      .sort((a, b) => {
+        if (b.to_purchase_qty > 0 && a.to_purchase_qty === 0) return 1;
+        if (a.to_purchase_qty > 0 && b.to_purchase_qty === 0) return -1;
+        if (b.to_purchase_qty !== a.to_purchase_qty) return b.to_purchase_qty - a.to_purchase_qty;
+        return b.required_qty - a.required_qty;
+      });
+
+    const totalRequiredKg = requirements.reduce((acc, r) => acc + r.required_qty, 0);
+    const shortageItemsCount = requirements.filter((r) => r.to_purchase_qty > 0.0001).length;
+    const totalShortageKg = requirements.reduce((acc, r) => acc + r.to_purchase_qty, 0);
+    const totalEstimatedPurchaseCost = requirements.reduce(
+      (acc, r) => acc + r.estimated_purchase_cost,
+      0
+    );
+
+    res.json({
+      pendingOrdersCount: (pendingOrders || []).length,
+      pendingOrders: pendingOrders || [],
+      requirements,
+      totalRequiredKg,
+      shortageItemsCount,
+      totalShortageKg,
+      totalEstimatedPurchaseCost
+    });
+  } catch (err) {
+    console.error("[Production] GET /api/production/mrp error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- POST /api/production: Create Production Order in SAP strictly via Service Layer ---
 router.post("/", async (req, res) => {
   try {

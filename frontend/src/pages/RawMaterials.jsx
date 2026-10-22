@@ -17,12 +17,63 @@ export default function RawMaterials() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/materials?_t=${Date.now()}`, { cache: "no-store" });
+      const ts = Date.now();
+      const [res, ordRes] = await Promise.all([
+        fetch(`/api/materials?_t=${ts}`, { cache: "no-store" }),
+        fetch(`/api/production?_t=${ts}`, { cache: "no-store" }).catch(() => ({ ok: false }))
+      ]);
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to load Raw Materials from SAP");
       }
-      const data = await res.json();
+      let data = await res.json();
+      const ordersData = ordRes && ordRes.ok ? await ordRes.json().catch(() => []) : [];
+
+      // Fallback enrichment if backend has not yet populated required_qty
+      if (Array.isArray(data) && data.length > 0 && data[0].required_qty === undefined && Array.isArray(ordersData)) {
+        const openOrders = ordersData.filter(
+          o =>
+            (o.status_code === "P" || o.status_code === "R") &&
+            Number(o.completed_qty || 0) < Number(o.planned_qty || 0) - 0.0001
+        );
+        const reqByCode = {};
+        const ordersByCode = {};
+        openOrders.forEach(ord => {
+          (ord.lines || []).forEach(line => {
+            const pending = Math.max(0, Number(line.planned_qty || 0) - Number(line.issued_qty || 0));
+            if (pending <= 0.0001) return;
+            const c = line.item_code;
+            reqByCode[c] = (reqByCode[c] || 0) + pending;
+            if (!ordersByCode[c]) ordersByCode[c] = [];
+            ordersByCode[c].push({
+              doc_entry: ord.doc_entry,
+              doc_num: ord.doc_num,
+              parent_code: ord.item_code,
+              parent_name: ord.item_name,
+              pending_qty: pending,
+              warehouse: line.warehouse || ord.warehouse || "01",
+              via_sfg: null
+            });
+          });
+        });
+        data = data.map(m => {
+          const onHand = Number(m.on_hand ?? m.stock_level ?? 0);
+          const onOrder = Number(m.on_order || 0);
+          const reqQty = Number(reqByCode[m.code] || 0);
+          const toBuy = Math.max(0, reqQty - onHand);
+          return {
+            ...m,
+            direct_required_qty: reqQty,
+            sfg_exploded_qty: 0,
+            required_qty: reqQty,
+            to_purchase_qty: toBuy,
+            net_after_po_qty: Math.max(0, toBuy - onOrder),
+            surplus_qty: Math.max(0, onHand - reqQty),
+            pending_orders: ordersByCode[m.code] || []
+          };
+        });
+      }
+
       setMaterials(data);
 
       // Initialize input state with current Production Standard Cost from SAP
@@ -166,8 +217,12 @@ export default function RawMaterials() {
     }
 
     const st = getItemStock(m);
+    const reqQty = Number(m.required_qty || 0);
+    const toBuyQty = Math.max(0, reqQty - st);
     if (stockFilter === "IN_STOCK" && st <= 0) return false;
     if (stockFilter === "OUT_OF_STOCK" && st > 0) return false;
+    if (stockFilter === "TO_PURCHASE" && toBuyQty <= 0.0001) return false;
+    if (stockFilter === "REQUIRED" && reqQty <= 0.0001) return false;
 
     return true;
   });
@@ -175,6 +230,14 @@ export default function RawMaterials() {
   // KPI Metrics
   const totalMaterialsCount = materials.length;
   const inStockCount = materials.filter(m => Number(m.on_hand ?? m.stock_level ?? 0) > 0).length;
+  const requiredInOrdersCount = materials.filter(m => Number(m.required_qty || 0) > 0.0001).length;
+  const toPurchaseCount = materials.filter(
+    m => Math.max(0, Number(m.required_qty || 0) - Number(m.on_hand ?? m.stock_level ?? 0)) > 0.0001
+  ).length;
+  const totalToPurchaseKg = materials.reduce(
+    (sum, m) => sum + Math.max(0, Number(m.required_qty || 0) - Number(m.on_hand ?? m.stock_level ?? 0)),
+    0
+  );
   const totalStockBalance = filteredMaterials.reduce((sum, m) => sum + getItemStock(m), 0);
   const totalStockPurValue = filteredMaterials.reduce(
     (sum, m) => sum + getItemStock(m) * Number(m.last_purchase_cost ?? m.unit_cost ?? 0),
@@ -233,8 +296,8 @@ export default function RawMaterials() {
           </div>
         </div>
 
-        {/* 4-Cell KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mt-6 pt-6 border-t border-black/[0.08]">
+        {/* 5-Cell KPI Strip */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 mt-6 pt-6 border-t border-black/[0.08]">
           <div className="bg-[#faf9f7] border border-black/[0.08] rounded-[4px] p-3.5">
             <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#6b6863]">
               Total Raw Materials
@@ -274,15 +337,36 @@ export default function RawMaterials() {
             </div>
           </div>
 
-          <div className="bg-[#c8102e]/[0.03] border border-[#c8102e]/20 rounded-[4px] p-3.5">
-            <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#c8102e]">
+          <div className="bg-[#faf9f7] border border-black/[0.1] rounded-[4px] p-3.5">
+            <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#444444]">
               Total Stock Value (Pur. Cost)
             </div>
-            <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#c8102e] mt-1">
+            <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#1a1a1a] mt-1">
               ₹{formatInr(totalStockPurValue)}
             </div>
             <div className="text-[11px] text-[#6b6863] mt-0.5">
               Valued at Last Purchase Price
+            </div>
+          </div>
+
+          <div
+            onClick={() =>
+              setStockFilter(prev => (prev === "TO_PURCHASE" ? "ALL" : "TO_PURCHASE"))
+            }
+            className="bg-[#c8102e]/[0.05] border border-[#c8102e]/30 rounded-[4px] p-3.5 cursor-pointer hover:bg-[#c8102e]/[0.09] transition-colors"
+            title="Click to filter Raw Materials that need to be purchased for pending Production Orders"
+          >
+            <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-[#c8102e]">
+              Items to Purchase (Shortage)
+            </div>
+            <div className="text-xl sm:text-2xl font-extrabold font-mono-code text-[#c8102e] mt-1">
+              {toPurchaseCount}{" "}
+              <span className="text-xs font-bold">
+                ({formatQty(totalToPurchaseKg)} Kg)
+              </span>
+            </div>
+            <div className="text-[11px] text-[#c8102e]/80 mt-0.5">
+              {requiredInOrdersCount} RM(s) needed in open orders
             </div>
           </div>
         </div>
@@ -308,6 +392,8 @@ export default function RawMaterials() {
                 className="border border-black/[0.15] rounded-[4px] px-3 py-2 text-xs font-semibold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
               >
                 <option value="ALL">All Items ({materials.length})</option>
+                <option value="TO_PURCHASE">Shortage / To Be Purchased &gt; 0 ({toPurchaseCount})</option>
+                <option value="REQUIRED">Required in Pending Orders &gt; 0 ({requiredInOrdersCount})</option>
                 <option value="IN_STOCK">In Stock &gt; 0 ({inStockCount})</option>
                 <option value="OUT_OF_STOCK">Out of Stock = 0 ({totalMaterialsCount - inStockCount})</option>
               </select>
@@ -394,6 +480,12 @@ export default function RawMaterials() {
                   <th className="px-5 py-3.5 text-right text-[10px] font-bold text-emerald-800 uppercase tracking-[0.1em] bg-emerald-950/[0.04]">
                     Stock Balance (On Hand)
                   </th>
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#1a1a1a] uppercase tracking-[0.1em] bg-amber-500/[0.05]">
+                    Required (Pending Orders)
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.06]">
+                    To Be Purchased (Shortage)
+                  </th>
                   <th className="px-5 py-3.5 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em] bg-[#006D77]/[0.05]">
                     Last Purchase Cost
                   </th>
@@ -408,7 +500,7 @@ export default function RawMaterials() {
               <tbody className="bg-white divide-y divide-black/[0.06]">
                 {filteredMaterials.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="p-8 text-center text-[#6b6863] italic text-sm">
+                    <td colSpan="9" className="p-8 text-center text-[#6b6863] italic text-sm">
                       No Raw Materials found matching your filter.
                     </td>
                   </tr>
@@ -490,6 +582,63 @@ export default function RawMaterials() {
                               </div>
                             )}
                           </div>
+                        </td>
+
+                        {/* Required in Pending Production Orders Column */}
+                        <td className="px-5 py-3.5 text-right bg-amber-500/[0.02]">
+                          {Number(m.required_qty || 0) > 0.0001 ? (
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="font-mono-code font-extrabold text-sm text-[#1a1a1a]">
+                                {formatQty(m.required_qty)} {m.uom || "Kg"}
+                              </span>
+                              {Array.isArray(m.pending_orders) && m.pending_orders.length > 0 && (
+                                <div className="flex flex-wrap justify-end gap-1">
+                                  {m.pending_orders.map((po, idx) => (
+                                    <span
+                                      key={`${po.doc_num}_${idx}`}
+                                      className="font-mono-code text-[10px] font-semibold px-1.5 py-0.2 rounded-[2px] bg-white text-[#444444] border border-black/[0.1]"
+                                      title={`Order #${po.doc_num} (${po.parent_code} - ${po.parent_name})`}
+                                    >
+                                      Ord #{po.doc_num}: {formatQty(po.pending_qty)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="font-mono-code text-xs text-[#8a8780]">0.00 {m.uom || "Kg"}</span>
+                          )}
+                        </td>
+
+                        {/* To Be Purchased (Shortage) Column */}
+                        <td className="px-5 py-3.5 text-right bg-[#c8102e]/[0.02] whitespace-nowrap">
+                          {(() => {
+                            const reqQty = Number(m.required_qty || 0);
+                            const toBuy = Math.max(0, reqQty - stockVal);
+                            const surplus = Math.max(0, stockVal - reqQty);
+                            if (toBuy > 0.0001) {
+                              return (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="font-mono-code font-extrabold text-xs px-2.5 py-1 rounded-[3px] bg-[#c8102e] text-white shadow-sm">
+                                    BUY {formatQty(toBuy)} {m.uom || "Kg"}
+                                  </span>
+                                  {onOrder > 0 && (
+                                    <span className="font-mono-code text-[10px] font-semibold text-[#006D77]">
+                                      PO: {formatQty(onOrder)} {m.uom || "Kg"}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (reqQty > 0.0001) {
+                              return (
+                                <span className="font-mono-code font-bold text-xs px-2 py-0.5 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
+                                  ✓ Covered (+{formatQty(surplus)} {m.uom || "Kg"})
+                                </span>
+                              );
+                            }
+                            return <span className="text-[#8a8780] font-mono-code text-xs">—</span>;
+                          })()}
                         </td>
 
                         <td className="px-5 py-3.5 text-right font-mono-code font-bold text-sm text-[#006D77] bg-[#006D77]/[0.03]">
