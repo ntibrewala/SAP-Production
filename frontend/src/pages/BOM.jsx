@@ -529,7 +529,62 @@ export default function BOM({ user }) {
   const subAssembliesList = goods.filter(g => g.is_intermediate === 1);
   const sfgOptions = availableItems.filter(i => i.is_intermediate === 1 && i.code !== formTreeCode);
 
+  const getComponentRates = (compType, itemCode) => {
+    if (!itemCode) return { stdRate: 0, purRate: 0 };
+    if (compType === "raw") {
+      const rm = rawMaterials.find(r => r.code === itemCode);
+      return {
+        stdRate: Number(rm?.prod_std_cost || 0),
+        purRate: Number(rm?.last_purchase_cost ?? rm?.unit_cost ?? 0)
+      };
+    }
+    if (compType === "sfg") {
+      const childBom = getBOMCostAndItems(itemCode);
+      if (childBom.items.length > 0) {
+        return {
+          stdRate: Number(childBom.stdUnitCost || 0),
+          purRate: Number(childBom.purUnitCost || 0)
+        };
+      }
+      const avail = availableItems.find(a => a.code === itemCode);
+      const gd = goods.find(g => g.code === itemCode);
+      return {
+        stdRate: Number(avail?.prod_std_cost ?? gd?.prod_std_cost ?? 0),
+        purRate: Number(avail?.last_purchase_cost ?? gd?.last_purchase_cost ?? 0)
+      };
+    }
+    return { stdRate: 0, purRate: 0 };
+  };
+
   const modalTotalQty = formLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0), 0);
+
+  const computedFormLines = formLines.map(line => {
+    const qty = parseFloat(line.quantity) || 0;
+    const pct = modalTotalQty > 0 ? (qty / modalTotalQty) * 100 : 0;
+    const share = modalTotalQty > 0 ? qty / modalTotalQty : 0;
+    const { stdRate, purRate } = getComponentRates(line.compType, line.itemCode);
+    const lineStdCostForQty = qty * stdRate;
+    const linePurCostForQty = qty * purRate;
+    const lineStdCostPerKg = share * stdRate;
+    const linePurCostPerKg = share * purRate;
+    return {
+      ...line,
+      qty,
+      pct,
+      share,
+      stdRate,
+      purRate,
+      lineStdCostForQty,
+      linePurCostForQty,
+      lineStdCostPerKg,
+      linePurCostPerKg
+    };
+  });
+
+  const modalTotalStdBatchCost = computedFormLines.reduce((sum, l) => sum + l.lineStdCostForQty, 0);
+  const modalTotalPurBatchCost = computedFormLines.reduce((sum, l) => sum + l.linePurCostForQty, 0);
+  const modalStdCostPerKg = modalTotalQty > 0 ? modalTotalStdBatchCost / modalTotalQty : 0;
+  const modalPurCostPerKg = modalTotalQty > 0 ? modalTotalPurBatchCost / modalTotalQty : 0;
 
   return (
     <div className="space-y-6 pb-20">
@@ -891,7 +946,7 @@ export default function BOM({ user }) {
       {/* Add / Edit BOM Modal (BOM Only — Item Master is created in SAP) */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4 overflow-y-auto">
-          <div className="bg-white rounded-[6px] shadow-2xl border border-black/[0.12] border-t-[3px] border-t-[#c8102e] max-w-4xl w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-[6px] shadow-2xl border border-black/[0.12] border-t-[3px] border-t-[#c8102e] max-w-6xl w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between border-b border-black/[0.08] pb-4">
               <div>
                 <div className="sec-label mb-1">
@@ -1039,7 +1094,46 @@ export default function BOM({ user }) {
                   </button>
                 </div>
 
-                <div className="border border-black/[0.1] rounded-[4px] overflow-hidden">
+                {/* Live Costing Summary Strip */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-[#faf9f7] border border-black/[0.08] rounded-[4px] px-4 py-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#6b6863]">
+                      Total Recipe Batch Qty
+                    </div>
+                    <div className="font-mono-code text-lg font-extrabold text-[#1a1a1a] mt-0.5">
+                      {modalTotalQty.toFixed(4)} Kg
+                    </div>
+                    <div className="text-[11px] text-[#6b6863] mt-0.5">
+                      Normalized across {formLines.length} component line{formLines.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+
+                  <div className="bg-[#c8102e]/[0.04] border border-[#c8102e]/20 border-l-[3px] border-l-[#c8102e] rounded-[4px] px-4 py-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#c8102e]">
+                      Live Prod. Std Cost
+                    </div>
+                    <div className="font-mono-code text-lg font-extrabold text-[#c8102e] mt-0.5">
+                      ₹{modalStdCostPerKg.toFixed(2)} / Kg
+                    </div>
+                    <div className="font-mono-code text-[11px] font-semibold text-[#1a1a1a] mt-0.5">
+                      Batch Total for {modalTotalQty.toFixed(2)} Kg: <span className="text-[#c8102e] font-bold">₹{modalTotalStdBatchCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#006D77]/[0.04] border border-[#006D77]/20 border-l-[3px] border-l-[#006D77] rounded-[4px] px-4 py-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#006D77]">
+                      Live Purchase Cost (Last Pur.)
+                    </div>
+                    <div className="font-mono-code text-lg font-extrabold text-[#006D77] mt-0.5">
+                      ₹{modalPurCostPerKg.toFixed(2)} / Kg
+                    </div>
+                    <div className="font-mono-code text-[11px] font-semibold text-[#1a1a1a] mt-0.5">
+                      Batch Total for {modalTotalQty.toFixed(2)} Kg: <span className="text-[#006D77] font-bold">₹{modalTotalPurBatchCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-black/[0.1] rounded-[4px] overflow-hidden overflow-x-auto">
                   <table className="min-w-full divide-y divide-black/[0.08] text-sm">
                     <thead className="bg-[#f4f2ef]">
                       <tr>
@@ -1058,15 +1152,32 @@ export default function BOM({ user }) {
                         <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Share %
                         </th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
+                          Rate / Kg (Std | Pur)
+                        </th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#c8102e] uppercase tracking-[0.1em] bg-[#c8102e]/[0.04]">
+                          Prod. Std Cost
+                        </th>
+                        <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#006D77] uppercase tracking-[0.1em] bg-[#006D77]/[0.04]">
+                          Last Purchase Cost
+                        </th>
                         <th className="px-3 py-2.5 text-center text-[10px] font-bold text-[#444444] uppercase tracking-[0.1em]">
                           Remove
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-black/[0.06] bg-white">
-                      {formLines.map((line, idx) => {
-                        const qty = parseFloat(line.quantity) || 0;
-                        const pct = modalTotalQty > 0 ? (qty / modalTotalQty) * 100 : 0;
+                      {computedFormLines.map((line, idx) => {
+                        const {
+                          qty,
+                          pct,
+                          stdRate,
+                          purRate,
+                          lineStdCostForQty,
+                          linePurCostForQty,
+                          lineStdCostPerKg,
+                          linePurCostPerKg
+                        } = line;
 
                         return (
                           <tr key={idx} className="hover:bg-[#faf9f7]">
@@ -1088,16 +1199,22 @@ export default function BOM({ user }) {
                               >
                                 <option value="">-- Select Component --</option>
                                 {line.compType === "raw"
-                                  ? rawMaterials.map(rm => (
-                                      <option key={rm.code} value={rm.code}>
-                                        {rm.code} — {rm.name} (Std: ₹{Number(rm.prod_std_cost || 0).toFixed(2)} | Pur: ₹{Number(rm.last_purchase_cost || 0).toFixed(2)})
-                                      </option>
-                                    ))
-                                  : sfgOptions.map(sfg => (
-                                      <option key={sfg.code} value={sfg.code}>
-                                        {sfg.code} — {sfg.name}
-                                      </option>
-                                    ))}
+                                  ? rawMaterials.map(rm => {
+                                      const rmRates = getComponentRates("raw", rm.code);
+                                      return (
+                                        <option key={rm.code} value={rm.code}>
+                                          {rm.code} — {rm.name} (Std: ₹{rmRates.stdRate.toFixed(2)} | Pur: ₹{rmRates.purRate.toFixed(2)})
+                                        </option>
+                                      );
+                                    })
+                                  : sfgOptions.map(sfg => {
+                                      const sfgRates = getComponentRates("sfg", sfg.code);
+                                      return (
+                                        <option key={sfg.code} value={sfg.code}>
+                                          {sfg.code} — {sfg.name} (Std: ₹{sfgRates.stdRate.toFixed(2)} | Pur: ₹{sfgRates.purRate.toFixed(2)})
+                                        </option>
+                                      );
+                                    })}
                               </select>
                             </td>
                             <td className="px-3 py-2">
@@ -1125,8 +1242,30 @@ export default function BOM({ user }) {
                                 required
                               />
                             </td>
-                            <td className="px-3 py-2 text-right font-mono-code font-semibold text-[#c8102e] text-xs">
+                            <td className="px-3 py-2 text-right font-mono-code font-semibold text-[#444444] text-xs">
                               {pct.toFixed(2)}%
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono-code text-[11px] leading-tight whitespace-nowrap">
+                              <div className="text-[#c8102e] font-semibold">Std: ₹{stdRate.toFixed(2)}</div>
+                              <div className="text-[#006D77] font-semibold">Pur: ₹{purRate.toFixed(2)}</div>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono-code bg-[#c8102e]/[0.03] leading-tight whitespace-nowrap">
+                              <div className="font-bold text-xs text-[#c8102e]">
+                                ₹{lineStdCostPerKg.toFixed(2)} / Kg
+                              </div>
+                              <div className="text-[10.5px] text-[#444444] mt-0.5">
+                                <span className="font-semibold">₹{lineStdCostForQty.toFixed(2)}</span>{" "}
+                                <span className="text-[#8a8780]">(for {qty.toFixed(2)} Kg)</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono-code bg-[#006D77]/[0.03] leading-tight whitespace-nowrap">
+                              <div className="font-bold text-xs text-[#006D77]">
+                                ₹{linePurCostPerKg.toFixed(2)} / Kg
+                              </div>
+                              <div className="text-[10.5px] text-[#444444] mt-0.5">
+                                <span className="font-semibold">₹{linePurCostForQty.toFixed(2)}</span>{" "}
+                                <span className="text-[#8a8780]">(for {qty.toFixed(2)} Kg)</span>
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-center">
                               {formLines.length > 1 && (
@@ -1143,6 +1282,42 @@ export default function BOM({ user }) {
                         );
                       })}
                     </tbody>
+                    <tfoot className="bg-[#1c1c1c] text-white">
+                      <tr>
+                        <td
+                          colSpan="3"
+                          className="px-3 py-3 text-right text-[11px] font-bold uppercase tracking-[0.1em] text-[#ece8e2]"
+                        >
+                          Live BOM Costing Summary
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono-code font-bold text-white text-xs sm:text-sm whitespace-nowrap">
+                          {modalTotalQty.toFixed(4)} Kg
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono-code font-bold text-[#ece8e2] text-xs sm:text-sm whitespace-nowrap">
+                          100.00%
+                        </td>
+                        <td className="px-3 py-3 text-right text-xs text-[#8a8780]">
+                          —
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono-code bg-white/[0.04] leading-tight whitespace-nowrap">
+                          <div className="font-bold text-[#ff6b81] text-xs sm:text-sm">
+                            ₹{modalStdCostPerKg.toFixed(2)} / Kg
+                          </div>
+                          <div className="text-[10.5px] text-[#ece8e2] mt-0.5">
+                            Batch: ₹{modalTotalStdBatchCost.toFixed(2)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono-code bg-white/[0.04] leading-tight whitespace-nowrap">
+                          <div className="font-bold text-[#4fd1c5] text-xs sm:text-sm">
+                            ₹{modalPurCostPerKg.toFixed(2)} / Kg
+                          </div>
+                          <div className="text-[10.5px] text-[#ece8e2] mt-0.5">
+                            Batch: ₹{modalTotalPurBatchCost.toFixed(2)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3" />
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
