@@ -128,12 +128,28 @@ router.get("/", async (req, res) => {
       receiptsMap[r.order_doc_entry].push(r);
     }
 
-    const enriched = (orders || []).map((o) => ({
-      ...o,
-      lines: linesMap[o.doc_entry] || [],
-      issues: issuesMap[o.doc_entry] || [],
-      receipts: receiptsMap[o.doc_entry] || []
-    }));
+    const enriched = (orders || []).map((o) => {
+      const orderLines = linesMap[o.doc_entry] || [];
+      const is_fully_issued =
+        orderLines.length > 0 &&
+        orderLines.every(
+          (l) => Number(l.issued_qty || 0) >= Number(l.planned_qty || 0) - 0.0001
+        );
+      const is_fully_received =
+        Number(o.planned_qty || 0) > 0 &&
+        Number(o.completed_qty || 0) >= Number(o.planned_qty || 0) - 0.0001;
+      const is_produced = o.status_code === "L" || is_fully_received;
+
+      return {
+        ...o,
+        is_fully_issued,
+        is_fully_received,
+        is_produced,
+        lines: orderLines,
+        issues: issuesMap[o.doc_entry] || [],
+        receipts: receiptsMap[o.doc_entry] || []
+      };
+    });
 
     res.json(enriched);
   } catch (err) {
@@ -387,7 +403,7 @@ router.post("/:docEntry/receipt", async (req, res) => {
       warehouse = "01",
       docDate,
       comments,
-      autoClose = false
+      autoClose
     } = req.body;
 
     if (!docEntry || isNaN(docEntry)) {
@@ -405,7 +421,7 @@ router.post("/:docEntry/receipt", async (req, res) => {
 
     // 1. Check Production Order status in HANA
     const [orderRows] = await db.execute(
-      `SELECT "DocEntry", "DocNum", "ItemCode", "Status", "Warehouse" FROM "OWOR" WHERE "DocEntry" = ?`,
+      `SELECT "DocEntry", "DocNum", "ItemCode", "Status", "Warehouse", CAST(COALESCE("PlannedQty", 0) AS DOUBLE) AS "PlannedQty", CAST(COALESCE("CmpltQty", 0) AS DOUBLE) AS "CmpltQty" FROM "OWOR" WHERE "DocEntry" = ?`,
       [docEntry]
     );
     if (!orderRows || orderRows.length === 0) {
@@ -462,9 +478,9 @@ router.post("/:docEntry/receipt", async (req, res) => {
 
     const result = await serviceLayer.post("/InventoryGenEntries", entryPayload);
 
-    // 4. Optionally close the Production Order after completion
+    // 4. Only close the Production Order if explicitly requested (autoClose === true)
     let closedNote = "";
-    if (autoClose) {
+    if (autoClose === true) {
       try {
         await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
           ProductionOrderStatus: "boposClosed"

@@ -18,7 +18,7 @@ export default function Production() {
   const [statusMsg, setStatusMsg] = useState(null);
 
   // Filters & Accordion state
-  const [statusFilter, setStatusFilter] = useState("ALL"); // ALL | P | R | L
+  const [statusFilter, setStatusFilter] = useState("ACTIVE"); // ACTIVE | PRODUCED | ALL | P | R | L
   const [typeFilter, setTypeFilter] = useState("ALL"); // ALL | FG | SFG
   const [search, setSearch] = useState("");
   const [expandedOrders, setExpandedOrders] = useState({});
@@ -84,10 +84,17 @@ export default function Production() {
         setWarehouses(whData);
       }
 
-      // Auto-expand first order if none expanded
+      // Auto-expand first active (unproduced) order if none expanded
+      const firstActive = (ordData || []).find(
+        o =>
+          !o.is_produced &&
+          o.status_code !== "L" &&
+          o.status_code !== "C" &&
+          !(Number(o.planned_qty || 0) > 0 && Number(o.completed_qty || 0) >= Number(o.planned_qty || 0) - 0.0001)
+      );
       setExpandedOrders(prev =>
-        Object.keys(prev).length === 0 && ordData.length > 0
-          ? { [ordData[0].doc_entry]: true }
+        Object.keys(prev).length === 0 && firstActive
+          ? { [firstActive.doc_entry]: true }
           : prev
       );
     } catch (err) {
@@ -155,6 +162,9 @@ export default function Production() {
         data.message ||
           `Production Order #${order.doc_num} status updated to ${label} via SAP Service Layer`
       );
+      if (newStatusCode === "L") {
+        setExpandedOrders(prev => ({ ...prev, [order.doc_entry]: false }));
+      }
       await fetchData();
     } catch (err) {
       console.error(err);
@@ -411,9 +421,16 @@ export default function Production() {
       }
 
       const recDocEntry = receiptOrder.doc_entry;
+      const nowFullyReceived =
+        Number(receiptOrder.planned_qty || 0) > 0 &&
+        Number(receiptOrder.completed_qty || 0) + (isNaN(qty) ? 0 : qty) >=
+          Number(receiptOrder.planned_qty || 0) - 0.0001;
       setReceiptOrder(null);
       setStatusMsg(data.message || "Received goods from Production via SAP Service Layer");
-      setExpandedOrders(prev => ({ ...prev, [recDocEntry]: true }));
+      setExpandedOrders(prev => ({
+        ...prev,
+        [recDocEntry]: !(nowFullyReceived || receiptAutoClose)
+      }));
       await fetchData();
     } catch (err) {
       console.error(err);
@@ -423,9 +440,15 @@ export default function Production() {
     }
   };
 
+  const isOrderOpen = (o) => o.status_code === "P" || o.status_code === "R";
+
   // Filtered Orders
   const filteredOrders = orders.filter(o => {
-    if (statusFilter !== "ALL" && o.status_code !== statusFilter) return false;
+    if (statusFilter === "ACTIVE") {
+      if (!isOrderOpen(o)) return false;
+    } else if (statusFilter !== "ALL" && o.status_code !== statusFilter) {
+      return false;
+    }
     if (typeFilter === "FG" && o.is_intermediate === 1) return false;
     if (typeFilter === "SFG" && o.is_intermediate !== 1) return false;
     if (search.trim()) {
@@ -440,6 +463,7 @@ export default function Production() {
 
   // KPI Counts
   const totalOrdersCount = orders.length;
+  const activeQueueCount = orders.filter(isOrderOpen).length;
   const plannedCount = orders.filter(o => o.status_code === "P").length;
   const releasedCount = orders.filter(o => o.status_code === "R").length;
   const closedCount = orders.filter(o => o.status_code === "L").length;
@@ -530,8 +554,47 @@ export default function Production() {
           </div>
         </div>
 
+        {/* View Mode Queue Tabs */}
+        <div className="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t border-black/[0.06]">
+          <button
+            type="button"
+            onClick={() => setStatusFilter("ACTIVE")}
+            className={`px-4 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.08em] transition-all cursor-pointer border ${
+              statusFilter === "ACTIVE"
+                ? "bg-[#1a1a1a] text-white border-[#1a1a1a] shadow-sm"
+                : "bg-[#faf9f7] text-[#444444] border-black/[0.12] hover:bg-[#f4f2ef]"
+            }`}
+          >
+            Open / Active Orders ({activeQueueCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("L")}
+            className={`px-4 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.08em] transition-all cursor-pointer border ${
+              statusFilter === "L"
+                ? "bg-emerald-700 text-white border-emerald-700 shadow-sm"
+                : "bg-[#faf9f7] text-emerald-800 border-emerald-600/25 hover:bg-emerald-950/[0.05]"
+            }`}
+          >
+            ✓ Closed History (L) ({closedCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("ALL")}
+            className={`px-4 py-2 rounded-[4px] text-xs font-extrabold uppercase tracking-[0.08em] transition-all cursor-pointer border ${
+              statusFilter === "ALL"
+                ? "bg-[#006D77] text-white border-[#006D77] shadow-sm"
+                : "bg-[#faf9f7] text-[#444444] border-black/[0.12] hover:bg-[#f4f2ef]"
+            }`}
+          >
+            All Orders ({totalOrdersCount})
+          </button>
+        </div>
+
         {/* Filter & Search Bar */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mt-5 pt-4 border-t border-black/[0.06]">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-3 mt-3 pt-3 border-t border-black/[0.05]">
           <div className="flex flex-wrap items-center gap-3">
             <input
               type="text"
@@ -543,13 +606,14 @@ export default function Production() {
 
             <div className="flex items-center gap-2">
               <label className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-[#6b6863]">
-                Status:
+                SAP Status:
               </label>
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
                 className="border border-black/[0.15] rounded-[4px] px-3 py-2 text-xs font-semibold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
               >
+                <option value="ACTIVE">Open Orders (P &amp; R) ({activeQueueCount})</option>
                 <option value="ALL">All Statuses ({totalOrdersCount})</option>
                 <option value="P">Planned (P) ({plannedCount})</option>
                 <option value="R">Released (R) ({releasedCount})</option>
@@ -646,6 +710,15 @@ export default function Production() {
             const remaining = Math.max(0, planned - completed);
             const pct = planned > 0 ? Math.min(100, Math.round((completed / planned) * 100)) : 0;
             const isBusy = busyOrderId === order.doc_entry;
+            const allComponentsIssued =
+              Boolean(order.is_fully_issued) ||
+              ((order.lines || []).length > 0 &&
+                order.lines.every(
+                  l => Number(l.issued_qty || 0) >= Number(l.planned_qty || 0) - 0.0001
+                ));
+            const fullyReceived =
+              Boolean(order.is_fully_received) ||
+              (planned > 0 && completed >= planned - 0.0001);
 
             const statusBadgeClass =
               order.status_code === "R"
@@ -778,7 +851,7 @@ export default function Production() {
 
                     {/* Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
-                      {order.status_code === "P" && (
+                      {order.status_code === "P" && !fullyReceived && (
                         <button
                           onClick={() => handleStatusChange(order, "R", "Released")}
                           disabled={isBusy}
@@ -791,34 +864,68 @@ export default function Production() {
 
                       {(order.status_code === "P" || order.status_code === "R") && (
                         <>
-                          <button
-                            onClick={() => openIssueModal(order)}
-                            disabled={isBusy}
-                            className="rp-btn rp-btn-outline py-2 px-3 text-[10.5px] border-[#c8102e]/40 text-[#c8102e] hover:bg-[#c8102e]/[0.05]"
-                            title="Issue Raw Materials to Production (SAP OIGE)"
-                          >
-                            Issue to Production
-                          </button>
+                          {allComponentsIssued ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.07em] px-2.5 py-1.5 rounded-[4px] bg-[#006D77]/10 text-[#006D77] border border-[#006D77]/30"
+                              title="All planned BOM components have been issued to production"
+                            >
+                              ✓ Materials Issued
+                            </span>
+                          ) : (
+                            !fullyReceived && (
+                              <button
+                                onClick={() => openIssueModal(order)}
+                                disabled={isBusy}
+                                className="rp-btn rp-btn-outline py-2 px-3 text-[10.5px] border-[#c8102e]/40 text-[#c8102e] hover:bg-[#c8102e]/[0.05]"
+                                title="Issue Raw Materials to Production (SAP OIGE)"
+                              >
+                                Issue to Production
+                              </button>
+                            )
+                          )}
 
-                          <button
-                            onClick={() => openReceiptModal(order)}
-                            disabled={isBusy}
-                            className="rp-btn rp-btn-red py-2 px-3 text-[10.5px]"
-                            title="Receive Finished Goods from Production (SAP OIGN)"
-                          >
-                            Get from Production (Receipt)
-                          </button>
+                          {fullyReceived ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[10.5px] font-extrabold uppercase tracking-[0.07em] px-3 py-1.5 rounded-[4px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30"
+                              title="Full planned quantity has already been received into stock — ready for you to close"
+                            >
+                              ✓ 100% Produced ({formatQty(completed)} {order.uom || "Kg"})
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => openReceiptModal(order)}
+                              disabled={isBusy}
+                              className="rp-btn rp-btn-red py-2 px-3 text-[10.5px]"
+                              title="Receive Finished Goods from Production (SAP OIGN)"
+                            >
+                              Get from Production (Receipt)
+                            </button>
+                          )}
                         </>
+                      )}
+
+                      {order.status_code === "L" && (
+                        <span className="inline-flex items-center gap-1.5 text-[10.5px] font-extrabold uppercase tracking-[0.07em] px-3 py-1.5 rounded-[4px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
+                          ✓ Produced &amp; Closed ({formatQty(completed)} {order.uom || "Kg"})
+                        </span>
                       )}
 
                       {order.status_code === "R" && (
                         <button
                           onClick={() => handleStatusChange(order, "L", "Closed")}
                           disabled={isBusy}
-                          className="rp-btn rp-btn-outline py-2 px-3 text-[10.5px]"
+                          className={
+                            fullyReceived
+                              ? "rp-btn rp-btn-red py-2 px-3.5 text-[10.5px]"
+                              : "rp-btn rp-btn-outline py-2 px-3 text-[10.5px]"
+                          }
                           title="Close Production Order in SAP (boposClosed)"
                         >
-                          {isBusy ? "..." : "Close Order"}
+                          {isBusy
+                            ? "Closing..."
+                            : fullyReceived
+                            ? "Close Order in SAP"
+                            : "Close Order"}
                         </button>
                       )}
                     </div>
@@ -842,19 +949,44 @@ export default function Production() {
                         </div>
 
                         {(order.status_code === "P" || order.status_code === "R") && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => openIssueModal(order)}
-                              className="rp-btn rp-btn-outline py-1.5 px-3 text-[10px]"
-                            >
-                              + Issue Components Now (OIGE)
-                            </button>
-                            <button
-                              onClick={() => openReceiptModal(order)}
-                              className="rp-btn rp-btn-red py-1.5 px-3 text-[10px]"
-                            >
-                              + Receive {order.item_code} Now (OIGN)
-                            </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {allComponentsIssued ? (
+                              <>
+                                <span className="text-[10.5px] font-bold uppercase tracking-[0.07em] px-2.5 py-1 rounded-[3px] bg-[#006D77]/10 text-[#006D77] border border-[#006D77]/30">
+                                  ✓ All Components Issued
+                                </span>
+                                {!fullyReceived && (
+                                  <button
+                                    onClick={() => openIssueModal(order)}
+                                    className="text-[10.5px] font-semibold text-[#6b6863] hover:text-[#1a1a1a] underline cursor-pointer px-1.5"
+                                  >
+                                    Issue Extra RM
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              !fullyReceived && (
+                                <button
+                                  onClick={() => openIssueModal(order)}
+                                  className="rp-btn rp-btn-outline py-1.5 px-3 text-[10px]"
+                                >
+                                  + Issue Components Now (OIGE)
+                                </button>
+                              )
+                            )}
+
+                            {fullyReceived ? (
+                              <span className="text-[10.5px] font-extrabold uppercase tracking-[0.07em] px-2.5 py-1 rounded-[3px] bg-emerald-950/[0.08] text-emerald-800 border border-emerald-600/30">
+                                ✓ Produced ({formatQty(completed)} {order.uom || "Kg"})
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openReceiptModal(order)}
+                                className="rp-btn rp-btn-red py-1.5 px-3 text-[10px]"
+                              >
+                                + Receive {order.item_code} Now (OIGN)
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
