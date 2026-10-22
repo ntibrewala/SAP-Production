@@ -17,7 +17,7 @@ export default function RawMaterials() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/materials");
+      const res = await fetch(`/api/materials?_t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to load Raw Materials from SAP");

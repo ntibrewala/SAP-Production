@@ -6,8 +6,18 @@ const fs = require("fs");
 const { loadSAPConfig } = require("./sapConfig");
 
 const app = express();
+app.set("etag", false);
 app.use(cors());
 app.use(express.json());
+
+// Prevent Safari / IIS reverse-proxy caching on all API endpoints
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.set("Surrogate-Control", "no-store");
+  next();
+});
 
 // Import routes
 const authRoutes = require("./routes/auth");

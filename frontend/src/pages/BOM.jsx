@@ -41,12 +41,14 @@ export default function BOM() {
     setLoading(true);
     setError(null);
     try {
+      const ts = Date.now();
+      const noStore = { cache: "no-store" };
       const [goodsRes, bomRes, rmRes, availRes, whRes] = await Promise.all([
-        fetch("/api/materials/goods"),
-        fetch("/api/materials/boms/all"),
-        fetch("/api/materials"),
-        fetch("/api/materials/available-items"),
-        fetch("/api/materials/warehouses")
+        fetch(`/api/materials/goods?_t=${ts}`, noStore),
+        fetch(`/api/materials/boms/all?_t=${ts}`, noStore),
+        fetch(`/api/materials?_t=${ts}`, noStore),
+        fetch(`/api/materials/available-items?_t=${ts}`, noStore),
+        fetch(`/api/materials/warehouses?_t=${ts}`, noStore)
       ]);
 
       if (!goodsRes.ok) {

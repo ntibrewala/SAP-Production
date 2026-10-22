@@ -57,12 +57,14 @@ export default function Production() {
     setLoading(true);
     setError(null);
     try {
+      const ts = Date.now();
+      const noStore = { cache: "no-store" };
       const [ordRes, goodsRes, bomRes, rmRes, whRes] = await Promise.all([
-        fetch("/api/production"),
-        fetch("/api/materials/goods"),
-        fetch("/api/materials/boms/all"),
-        fetch("/api/materials"),
-        fetch("/api/materials/warehouses")
+        fetch(`/api/production?_t=${ts}`, noStore),
+        fetch(`/api/materials/goods?_t=${ts}`, noStore),
+        fetch(`/api/materials/boms/all?_t=${ts}`, noStore),
+        fetch(`/api/materials?_t=${ts}`, noStore),
+        fetch(`/api/materials/warehouses?_t=${ts}`, noStore)
       ]);
 
       if (!ordRes.ok) {
@@ -158,13 +160,29 @@ export default function Production() {
       if (!res.ok) {
         throw new Error(data.error || `Failed to ${label} Production Order #${order.doc_num}`);
       }
+      setOrders(prev =>
+        prev.map(o =>
+          o.doc_entry === order.doc_entry
+            ? {
+                ...o,
+                status_code: newStatusCode,
+                status: label,
+                is_produced: newStatusCode === "L" ? true : o.is_produced
+              }
+            : o
+        )
+      );
+      if (newStatusCode === "L") {
+        setExpandedOrders(prev => {
+          const next = { ...prev };
+          delete next[order.doc_entry];
+          return next;
+        });
+      }
       setStatusMsg(
         data.message ||
           `Production Order #${order.doc_num} status updated to ${label} via SAP Service Layer`
       );
-      if (newStatusCode === "L") {
-        setExpandedOrders(prev => ({ ...prev, [order.doc_entry]: false }));
-      }
       await fetchData();
     } catch (err) {
       console.error(err);
