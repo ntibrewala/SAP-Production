@@ -158,127 +158,263 @@ router.get("/", async (req, res) => {
   }
 });
 
-// --- GET /api/production/mrp: Material Requirement & Purchase Shortage Calculator across all Open Production Orders ---
+// --- GET /api/production/mrp: Material Requirement & Purchase Shortage Calculator across all Open Production Orders via SAP B1 Service Layer ---
 router.get("/mrp", async (req, res) => {
   try {
-    const openOrdersSql = `
-      SELECT 
-        T0."DocEntry" AS "doc_entry",
-        T0."DocNum" AS "doc_num",
-        T0."ItemCode" AS "item_code",
-        COALESCE(T1."ItemName", T0."ProdName", T0."ItemCode") AS "item_name",
-        COALESCE(T1."InvntryUom", 'Kg') AS "uom",
-        T0."Status" AS "status_code",
-        CASE 
-          WHEN T0."Status" = 'P' THEN 'Planned'
-          WHEN T0."Status" = 'R' THEN 'Released'
-          ELSE T0."Status"
-        END AS "status",
-        CAST(COALESCE(T0."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
-        CAST(COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "completed_qty",
-        CAST(COALESCE(T0."PlannedQty", 0) - COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "pending_qty",
-        T0."Warehouse" AS "warehouse",
-        T0."PostDate" AS "post_date",
-        T0."DueDate" AS "due_date",
-        CASE 
-          WHEN T1."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T1."ItmsGrpCod" = 107 THEN 1 
-          ELSE 0 
-        END AS "is_intermediate"
-      FROM "OWOR" T0
-      LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
-      WHERE T0."Status" IN ('P', 'R')
-        AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
-      ORDER BY T0."DocNum" ASC
-    `;
-
-    const openWorLinesSql = `
-      SELECT 
-        T1."ItemCode" AS "item_code",
-        T0."DocEntry" AS "doc_entry",
-        T0."DocNum" AS "doc_num",
-        T0."ItemCode" AS "parent_code",
-        COALESCE(P."ItemName", T0."ProdName", T0."ItemCode") AS "parent_name",
-        CAST(T1."PlannedQty" - COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "pending_qty",
-        CAST(COALESCE(T1."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
-        CAST(COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "issued_qty",
-        T1."wareHouse" AS "warehouse"
-      FROM "WOR1" T1
-      INNER JOIN "OWOR" T0 ON T1."DocEntry" = T0."DocEntry"
-      LEFT JOIN "OITM" P ON T0."ItemCode" = P."ItemCode"
-      WHERE T0."Status" IN ('P', 'R')
-        AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
-        AND (COALESCE(T1."PlannedQty", 0) - COALESCE(T1."IssuedQty", 0)) > 0.0001
-      ORDER BY T0."DocNum" ASC, T1."LineNum" ASC
-    `;
-
-    const itemsMasterSql = `
-      SELECT 
-        T0."ItemCode" AS "code",
-        T0."ItemName" AS "name",
-        COALESCE(T0."InvntryUom", 'Kg') AS "uom",
-        T0."ItmsGrpCod" AS "item_group",
-        COALESCE(T0."Phantom", 'N') AS "phantom",
-        CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
-        CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), NULLIF(T0."PrdStdCst", 0), 0) AS DOUBLE) AS "last_purchase_cost",
-        CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
-        CAST(COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "is_committed",
-        CAST(COALESCE(T0."OnOrder", 0) AS DOUBLE) AS "on_order",
-        CAST(COALESCE(T0."OnHand", 0) - COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "available_stock",
-        CAST(COALESCE(W01."OnHand", 0) AS DOUBLE) AS "wh_01_stock",
-        CAST(COALESCE(W8."OnHand", 0) AS DOUBLE) AS "wh_8_stock",
-        CAST(COALESCE(W10."OnHand", 0) AS DOUBLE) AS "wh_10_stock"
-      FROM "OITM" T0
-      LEFT JOIN (
-        SELECT "ItemCode", "Price"
-        FROM (
-          SELECT 
-            "ItemCode", 
-            "Price",
-            ROW_NUMBER() OVER (PARTITION BY "ItemCode" ORDER BY "TransNum" DESC) AS "rn"
-          FROM "OINM"
-          WHERE "InQty" > 0 AND "Price" > 0
-        )
-        WHERE "rn" = 1
-      ) LC ON T0."ItemCode" = LC."ItemCode"
-      LEFT JOIN "OITW" W01 ON T0."ItemCode" = W01."ItemCode" AND W01."WhsCode" = '01'
-      LEFT JOIN "OITW" W8 ON T0."ItemCode" = W8."ItemCode" AND W8."WhsCode" = '8'
-      LEFT JOIN "OITW" W10 ON T0."ItemCode" = W10."ItemCode" AND W10."WhsCode" = '10'
-      WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" IN (101, 107)
-      ORDER BY T0."ItemCode" ASC
-    `;
-
-    const sfgBomsSql = `
-      SELECT 
-        T0."Code" AS "sfg_code",
-        CAST(COALESCE(T0."Qauntity", 0) AS DOUBLE) AS "header_qty",
-        T1."Code" AS "comp_code",
-        CAST(COALESCE(T1."Quantity", 0) AS DOUBLE) AS "comp_qty",
-        T1."Warehouse" AS "warehouse"
-      FROM "OITT" T0
-      INNER JOIN "ITT1" T1 ON T0."Code" = T1."Father"
-    `;
-
-    const [[pendingOrders], [worLines], [itemsRows], [bomRows]] = await Promise.all([
-      db.query(openOrdersSql),
-      db.query(openWorLinesSql),
-      db.query(itemsMasterSql),
-      db.query(sfgBomsSql)
-    ]);
-
+    let source = "SAP B1 Service Layer (/ProductionOrders, /Items, /ProductTrees)";
+    let pendingOrders = [];
+    let worLines = [];
     const itemMap = {};
-    for (const it of itemsRows || []) {
-      itemMap[it.code] = it;
-    }
-
     const bomByFather = {};
-    for (const b of bomRows || []) {
-      if (!bomByFather[b.sfg_code]) {
-        bomByFather[b.sfg_code] = {
-          headerQty: Number(b.header_qty || 0),
-          lines: []
+
+    try {
+      const [slOrdersRes, slItemsRes, slTreesRes] = await Promise.all([
+        serviceLayer.get(
+          "/ProductionOrders?$filter=ProductionOrderStatus eq 'boposPlanned' or ProductionOrderStatus eq 'boposReleased'&$orderby=AbsoluteEntry desc",
+          { Prefer: "odata.maxpagesize=500" }
+        ),
+        serviceLayer.get(
+          "/Items?$select=ItemCode,ItemName,ItemsGroupCode,InventoryUOM,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers,ProdStdCost,LastPurchasePrice,MovingAveragePrice,ItemWarehouseInfoCollection",
+          { Prefer: "odata.maxpagesize=500" }
+        ),
+        serviceLayer.get(
+          "/ProductTrees?$select=TreeCode,Quantity,Warehouse,ProductTreeLines",
+          { Prefer: "odata.maxpagesize=500" }
+        )
+      ]);
+
+      for (const item of slItemsRes?.value || []) {
+        const whStocks = { "01": 0, "8": 0, "10": 0 };
+        for (const wh of item.ItemWarehouseInfoCollection || []) {
+          if (wh.WarehouseCode) {
+            whStocks[wh.WarehouseCode] = Number(wh.InStock || 0);
+          }
+        }
+        const onHand = Number(item.QuantityOnStock || 0);
+        const onOrder = Number(item.QuantityOrderedFromVendors || 0);
+        const isCommitted = Number(item.QuantityOrderedByCustomers || 0);
+        const prodStdCost = Number(item.ProdStdCost || 0);
+        const lastPurCost = Number(
+          item.LastPurchasePrice || item.MovingAveragePrice || item.ProdStdCost || 0
+        );
+
+        itemMap[item.ItemCode] = {
+          code: item.ItemCode,
+          name: item.ItemName || item.ItemCode,
+          uom: item.InventoryUOM || "Kg",
+          item_group: Number(item.ItemsGroupCode || 0),
+          phantom: "N",
+          prod_std_cost: prodStdCost,
+          last_purchase_cost: lastPurCost,
+          on_hand: onHand,
+          on_order: onOrder,
+          is_committed: isCommitted,
+          available_stock: onHand - isCommitted,
+          wh_01_stock: Number(whStocks["01"] || 0),
+          wh_8_stock: Number(whStocks["8"] || 0),
+          wh_10_stock: Number(whStocks["10"] || 0),
+          warehouse_stocks: whStocks
         };
       }
-      bomByFather[b.sfg_code].lines.push(b);
+
+      for (const tree of slTreesRes?.value || []) {
+        const treeCode = tree.TreeCode;
+        if (!treeCode) continue;
+        const headerQty = Number(tree.Quantity || 0);
+        bomByFather[treeCode] = {
+          headerQty,
+          lines: (tree.ProductTreeLines || []).map((l) => ({
+            sfg_code: treeCode,
+            header_qty: headerQty,
+            comp_code: l.ItemCode,
+            comp_qty: Number(l.Quantity || 0),
+            warehouse: l.Warehouse || tree.Warehouse || "01"
+          }))
+        };
+      }
+
+      const openSlOrders = (slOrdersRes?.value || []).filter(
+        (o) => Number(o.CompletedQuantity || 0) < Number(o.PlannedQuantity || 0) - 0.0001
+      );
+
+      for (const o of openSlOrders) {
+        const parentCode = o.ItemNo;
+        const parentMeta = itemMap[parentCode] || {};
+        const parentName = o.ProductDescription || parentMeta.name || parentCode;
+        const plannedQty = Number(o.PlannedQuantity || 0);
+        const completedQty = Number(o.CompletedQuantity || 0);
+        const orderPendingQty = Math.max(0, plannedQty - completedQty);
+        const isIntermediate =
+          String(parentCode || "").toUpperCase().startsWith("SFG") ||
+          Number(parentMeta.item_group) === 107
+            ? 1
+            : 0;
+
+        pendingOrders.push({
+          doc_entry: o.AbsoluteEntry,
+          doc_num: o.DocumentNumber,
+          item_code: parentCode,
+          item_name: parentName,
+          uom: parentMeta.uom || "Kg",
+          status_code: o.ProductionOrderStatus === "boposPlanned" ? "P" : "R",
+          status: o.ProductionOrderStatus === "boposPlanned" ? "Planned" : "Released",
+          planned_qty: plannedQty,
+          completed_qty: completedQty,
+          pending_qty: orderPendingQty,
+          warehouse: o.Warehouse || "01",
+          post_date: o.PostingDate,
+          due_date: o.DueDate,
+          is_intermediate: isIntermediate
+        });
+
+        for (const l of o.ProductionOrderLines || []) {
+          const linePendingQty = Math.max(
+            0,
+            Number(l.PlannedQuantity || 0) - Number(l.IssuedQuantity || 0)
+          );
+          if (linePendingQty <= 0.0001) continue;
+
+          worLines.push({
+            item_code: l.ItemNo,
+            doc_entry: o.AbsoluteEntry,
+            doc_num: o.DocumentNumber,
+            parent_code: parentCode,
+            parent_name: parentName,
+            pending_qty: linePendingQty,
+            planned_qty: Number(l.PlannedQuantity || 0),
+            issued_qty: Number(l.IssuedQuantity || 0),
+            warehouse: l.Warehouse || o.Warehouse || "01",
+            issue_type: l.ProductionOrderIssueType
+          });
+        }
+      }
+    } catch (slErr) {
+      console.warn(
+        "[Production MRP] Service Layer query failed, falling back to HANA SQL:",
+        slErr.message
+      );
+      source = "SAP HANA SQL Fallback (OWOR, WOR1, OITM, OITT)";
+
+      const openOrdersSql = `
+        SELECT 
+          T0."DocEntry" AS "doc_entry",
+          T0."DocNum" AS "doc_num",
+          T0."ItemCode" AS "item_code",
+          COALESCE(T1."ItemName", T0."ProdName", T0."ItemCode") AS "item_name",
+          COALESCE(T1."InvntryUom", 'Kg') AS "uom",
+          T0."Status" AS "status_code",
+          CASE 
+            WHEN T0."Status" = 'P' THEN 'Planned'
+            WHEN T0."Status" = 'R' THEN 'Released'
+            ELSE T0."Status"
+          END AS "status",
+          CAST(COALESCE(T0."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
+          CAST(COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "completed_qty",
+          CAST(COALESCE(T0."PlannedQty", 0) - COALESCE(T0."CmpltQty", 0) AS DOUBLE) AS "pending_qty",
+          T0."Warehouse" AS "warehouse",
+          T0."PostDate" AS "post_date",
+          T0."DueDate" AS "due_date",
+          CASE 
+            WHEN T1."Phantom" = 'Y' OR T0."ItemCode" LIKE 'SFG%' OR T1."ItmsGrpCod" = 107 THEN 1 
+            ELSE 0 
+          END AS "is_intermediate"
+        FROM "OWOR" T0
+        LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
+        WHERE T0."Status" IN ('P', 'R')
+          AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
+        ORDER BY T0."DocNum" ASC
+      `;
+
+      const openWorLinesSql = `
+        SELECT 
+          T1."ItemCode" AS "item_code",
+          T0."DocEntry" AS "doc_entry",
+          T0."DocNum" AS "doc_num",
+          T0."ItemCode" AS "parent_code",
+          COALESCE(P."ItemName", T0."ProdName", T0."ItemCode") AS "parent_name",
+          CAST(T1."PlannedQty" - COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "pending_qty",
+          CAST(COALESCE(T1."PlannedQty", 0) AS DOUBLE) AS "planned_qty",
+          CAST(COALESCE(T1."IssuedQty", 0) AS DOUBLE) AS "issued_qty",
+          T1."wareHouse" AS "warehouse"
+        FROM "WOR1" T1
+        INNER JOIN "OWOR" T0 ON T1."DocEntry" = T0."DocEntry"
+        LEFT JOIN "OITM" P ON T0."ItemCode" = P."ItemCode"
+        WHERE T0."Status" IN ('P', 'R')
+          AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
+          AND (COALESCE(T1."PlannedQty", 0) - COALESCE(T1."IssuedQty", 0)) > 0.0001
+        ORDER BY T0."DocNum" ASC, T1."LineNum" ASC
+      `;
+
+      const itemsMasterSql = `
+        SELECT 
+          T0."ItemCode" AS "code",
+          T0."ItemName" AS "name",
+          COALESCE(T0."InvntryUom", 'Kg') AS "uom",
+          T0."ItmsGrpCod" AS "item_group",
+          COALESCE(T0."Phantom", 'N') AS "phantom",
+          CAST(COALESCE(T0."PrdStdCst", 0) AS DOUBLE) AS "prod_std_cost",
+          CAST(COALESCE(LC."Price", NULLIF(T0."LastPurPrc", 0), NULLIF(T0."AvgPrice", 0), NULLIF(T0."PrdStdCst", 0), 0) AS DOUBLE) AS "last_purchase_cost",
+          CAST(COALESCE(T0."OnHand", 0) AS DOUBLE) AS "on_hand",
+          CAST(COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "is_committed",
+          CAST(COALESCE(T0."OnOrder", 0) AS DOUBLE) AS "on_order",
+          CAST(COALESCE(T0."OnHand", 0) - COALESCE(T0."IsCommited", 0) AS DOUBLE) AS "available_stock",
+          CAST(COALESCE(W01."OnHand", 0) AS DOUBLE) AS "wh_01_stock",
+          CAST(COALESCE(W8."OnHand", 0) AS DOUBLE) AS "wh_8_stock",
+          CAST(COALESCE(W10."OnHand", 0) AS DOUBLE) AS "wh_10_stock"
+        FROM "OITM" T0
+        LEFT JOIN (
+          SELECT "ItemCode", "Price"
+          FROM (
+            SELECT 
+              "ItemCode", 
+              "Price",
+              ROW_NUMBER() OVER (PARTITION BY "ItemCode" ORDER BY "TransNum" DESC) AS "rn"
+            FROM "OINM"
+            WHERE "InQty" > 0 AND "Price" > 0
+          )
+          WHERE "rn" = 1
+        ) LC ON T0."ItemCode" = LC."ItemCode"
+        LEFT JOIN "OITW" W01 ON T0."ItemCode" = W01."ItemCode" AND W01."WhsCode" = '01'
+        LEFT JOIN "OITW" W8 ON T0."ItemCode" = W8."ItemCode" AND W8."WhsCode" = '8'
+        LEFT JOIN "OITW" W10 ON T0."ItemCode" = W10."ItemCode" AND W10."WhsCode" = '10'
+        WHERE T0."ItemCode" LIKE 'RM%' OR T0."ItemCode" LIKE 'SFG%' OR T0."ItmsGrpCod" IN (101, 107)
+        ORDER BY T0."ItemCode" ASC
+      `;
+
+      const sfgBomsSql = `
+        SELECT 
+          T0."Code" AS "sfg_code",
+          CAST(COALESCE(T0."Qauntity", 0) AS DOUBLE) AS "header_qty",
+          T1."Code" AS "comp_code",
+          CAST(COALESCE(T1."Quantity", 0) AS DOUBLE) AS "comp_qty",
+          T1."Warehouse" AS "warehouse"
+        FROM "OITT" T0
+        INNER JOIN "ITT1" T1 ON T0."Code" = T1."Father"
+      `;
+
+      const [[dbOrders], [dbWorLines], [itemsRows], [bomRows]] = await Promise.all([
+        db.query(openOrdersSql),
+        db.query(openWorLinesSql),
+        db.query(itemsMasterSql),
+        db.query(sfgBomsSql)
+      ]);
+
+      pendingOrders = dbOrders || [];
+      worLines = dbWorLines || [];
+
+      for (const it of itemsRows || []) {
+        itemMap[it.code] = it;
+      }
+
+      for (const b of bomRows || []) {
+        if (!bomByFather[b.sfg_code]) {
+          bomByFather[b.sfg_code] = {
+            headerQty: Number(b.header_qty || 0),
+            lines: []
+          };
+        }
+        bomByFather[b.sfg_code].lines.push(b);
+      }
     }
 
     const scheduledSfgMap = {};
@@ -439,7 +575,7 @@ router.get("/mrp", async (req, res) => {
           last_purchase_cost: lastPurCost,
           prod_std_cost: prodStdCost,
           estimated_purchase_cost: estPurchaseCost,
-          warehouse_stocks: {
+          warehouse_stocks: meta.warehouse_stocks || {
             "01": Number(meta.wh_01_stock || 0),
             "8": Number(meta.wh_8_stock || 0),
             "10": Number(meta.wh_10_stock || 0)
@@ -464,9 +600,16 @@ router.get("/mrp", async (req, res) => {
     );
 
     res.json({
+      source,
       pendingOrdersCount: (pendingOrders || []).length,
       pendingOrders: pendingOrders || [],
       requirements,
+      summary: {
+        totalRequiredKg,
+        shortageItemsCount,
+        totalShortageKg,
+        totalEstimatedPurchaseCost
+      },
       totalRequiredKg,
       shortageItemsCount,
       totalShortageKg,
