@@ -3,6 +3,48 @@ const router = express.Router();
 const db = require("../db");
 const serviceLayer = require("../serviceLayer");
 
+let shiftUdfCreateAttempted = false;
+async function resolveShiftUdfColumns(tryCreate = false) {
+  let headerCol = null;
+  let lineCol = null;
+  try {
+    const [cols] = await db.query(`
+      SELECT "TABLE_NAME", "COLUMN_NAME"
+      FROM "SYS"."TABLE_COLUMNS"
+      WHERE "SCHEMA_NAME" = CURRENT_SCHEMA
+        AND "TABLE_NAME" IN ('OIGN', 'IGN1')
+        AND UPPER("COLUMN_NAME") LIKE 'U_%SHIFT%'
+      ORDER BY "COLUMN_NAME" ASC
+    `);
+    for (const c of cols || []) {
+      if (c.TABLE_NAME === "OIGN" && !headerCol) headerCol = c.COLUMN_NAME;
+      if (c.TABLE_NAME === "IGN1" && !lineCol) lineCol = c.COLUMN_NAME;
+    }
+  } catch (e) {
+    console.warn("[Production] Shift UDF column lookup warning:", e.message);
+  }
+
+  if (!headerCol && !lineCol && tryCreate && !shiftUdfCreateAttempted) {
+    shiftUdfCreateAttempted = true;
+    try {
+      await serviceLayer.post("/UserFieldsMD", {
+        Name: "Shift",
+        Type: "db_Alpha",
+        Size: 20,
+        Description: "Production Shift (Day / Night)",
+        SubType: "st_None",
+        TableName: "OIGN"
+      });
+      headerCol = "U_Shift";
+      console.log("[ServiceLayer] Created U_Shift UDF on OIGN via /UserFieldsMD");
+    } catch (createErr) {
+      console.warn("[ServiceLayer] Auto-create U_Shift on OIGN skipped:", createErr.message);
+    }
+  }
+
+  return { headerCol, lineCol };
+}
+
 // --- GET /api/production: All SAP Production Orders (OWOR) with Component Lines (WOR1), Issues (OIGE), and Receipts (OIGN) ---
 router.get("/", async (req, res) => {
   try {
@@ -85,12 +127,20 @@ router.get("/", async (req, res) => {
       ORDER BY T0."DocEntry" DESC, T1."LineNum" ASC
     `;
 
+    const { headerCol: shiftHeaderCol, lineCol: shiftLineCol } = await resolveShiftUdfColumns(false);
+    const shiftSelectExpr = shiftHeaderCol
+      ? `T0."${shiftHeaderCol}" AS "shift",`
+      : shiftLineCol
+      ? `T1."${shiftLineCol}" AS "shift",`
+      : `NULL AS "shift",`;
+
     const receiptsSql = `
       SELECT 
         T0."DocEntry" AS "doc_entry",
         T0."DocNum" AS "doc_num",
         T0."DocDate" AS "doc_date",
         T0."Comments" AS "comments",
+        ${shiftSelectExpr}
         T1."BaseEntry" AS "order_doc_entry",
         T1."ItemCode" AS "item_code",
         T1."Dscription" AS "item_name",
@@ -124,6 +174,10 @@ router.get("/", async (req, res) => {
 
     const receiptsMap = {};
     for (const r of receipts || []) {
+      if (!r.shift && r.comments) {
+        const m = String(r.comments).match(/\[Shift:\s*([^\]]+)\]/i);
+        if (m && m[1]) r.shift = m[1].trim();
+      }
       if (!receiptsMap[r.order_doc_entry]) receiptsMap[r.order_doc_entry] = [];
       receiptsMap[r.order_doc_entry].push(r);
     }
@@ -872,6 +926,8 @@ router.post("/:docEntry/receipt", async (req, res) => {
       rejectedQuantity = 0,
       warehouse = "01",
       docDate,
+      shift,
+      U_Shift,
       comments,
       autoClose
     } = req.body;
@@ -938,15 +994,72 @@ router.post("/:docEntry/receipt", async (req, res) => {
     }
 
     // 3. Post Receipt from Production (InventoryGenEntries / OIGN) via Service Layer
+    const receiptDate = String(docDate || new Date().toISOString().split("T")[0]).split("T")[0];
+    const cleanShift = String(shift || U_Shift || "Day").trim();
+    const { headerCol: shiftHeaderCol, lineCol: shiftLineCol } = await resolveShiftUdfColumns(true);
+
+    const baseComments =
+      comments ||
+      `Receipt from Production Order #${orderInfo.DocNum} (${orderInfo.ItemCode})`;
+    const finalComments =
+      cleanShift && !String(baseComments).toLowerCase().includes("shift:")
+        ? `${baseComments} [Shift: ${cleanShift}]`
+        : baseComments;
+
+    if (shiftLineCol && cleanShift) {
+      for (const dl of docLines) {
+        dl[shiftLineCol] = cleanShift;
+      }
+    }
+
     const entryPayload = {
-      DocDate: docDate || new Date().toISOString().split("T")[0],
-      Comments:
-        comments ||
-        `Receipt from Production Order #${orderInfo.DocNum} (${orderInfo.ItemCode})`,
+      DocDate: receiptDate,
+      TaxDate: receiptDate,
+      Comments: finalComments,
       DocumentLines: docLines
     };
 
-    const result = await serviceLayer.post("/InventoryGenEntries", entryPayload);
+    const targetHeaderShiftProp = shiftHeaderCol || "U_Shift";
+    if (cleanShift) {
+      entryPayload[targetHeaderShiftProp] = cleanShift;
+    }
+
+    let result;
+    try {
+      result = await serviceLayer.post("/InventoryGenEntries", entryPayload);
+    } catch (slPostErr) {
+      const errMsg = String(slPostErr.message || "");
+      const isShiftPropErr =
+        errMsg.toLowerCase().includes("shift") ||
+        errMsg.toLowerCase().includes("property") ||
+        errMsg.toLowerCase().includes("valid value");
+      if (isShiftPropErr && cleanShift) {
+        try {
+          // Try single-char valid value (D / N) in case SAP UDF was configured with D/N valid values
+          const shortShift = cleanShift.toUpperCase().startsWith("N") ? "N" : "D";
+          const retryShortPayload = {
+            ...entryPayload,
+            [targetHeaderShiftProp]: shortShift
+          };
+          result = await serviceLayer.post("/InventoryGenEntries", retryShortPayload);
+        } catch (_) {
+          // Fallback without unknown UDF property if U_Shift has not yet been added to OIGN
+          const fallbackPayload = {
+            DocDate: receiptDate,
+            TaxDate: receiptDate,
+            Comments: finalComments,
+            DocumentLines: docLines.map((dl) => {
+              const copy = { ...dl };
+              if (shiftLineCol) delete copy[shiftLineCol];
+              return copy;
+            })
+          };
+          result = await serviceLayer.post("/InventoryGenEntries", fallbackPayload);
+        }
+      } else {
+        throw slPostErr;
+      }
+    }
 
     // 4. Only close the Production Order if explicitly requested (autoClose === true)
     let closedNote = "";
@@ -966,7 +1079,7 @@ router.post("/:docEntry/receipt", async (req, res) => {
     }
 
     res.status(201).json({
-      message: `Received ${completeQty} Kg of ${orderInfo.ItemCode} from Production Order #${orderInfo.DocNum} (Receipt Doc #${result.DocNum})${closedNote} via SAP Service Layer`,
+      message: `Received ${completeQty} Kg of ${orderInfo.ItemCode} on ${receiptDate} (${cleanShift} Shift) from Production Order #${orderInfo.DocNum} (Receipt Doc #${result.DocNum})${closedNote} via SAP Service Layer`,
       receiptDocument: result
     });
   } catch (err) {

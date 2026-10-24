@@ -69,6 +69,8 @@ export default function Production() {
   const [receiptQty, setReceiptQty] = useState("");
   const [receiptRejectedQty, setReceiptRejectedQty] = useState("0");
   const [receiptWarehouse, setReceiptWarehouse] = useState("01");
+  const [receiptDate, setReceiptDate] = useState(new Date().toISOString().split("T")[0]);
+  const [receiptShift, setReceiptShift] = useState("Day"); // Day | Night
   const [receiptAutoClose, setReceiptAutoClose] = useState(false);
   const [receiptComments, setReceiptComments] = useState("");
   const [submittingReceipt, setSubmittingReceipt] = useState(false);
@@ -431,6 +433,8 @@ export default function Production() {
     setReceiptQty(remaining > 0 ? String(remaining) : String(order.planned_qty || 1));
     setReceiptRejectedQty("0");
     setReceiptWarehouse(order.warehouse || "01");
+    setReceiptDate(new Date().toISOString().split("T")[0]);
+    setReceiptShift("Day");
     setReceiptAutoClose(false);
     setReceiptComments(`Receipt from Production Order #${order.doc_num} (${order.item_code})`);
   };
@@ -458,6 +462,9 @@ export default function Production() {
           quantity: isNaN(qty) ? 0 : qty,
           rejectedQuantity: isNaN(rejQty) ? 0 : rejQty,
           warehouse: receiptWarehouse || "01",
+          docDate: receiptDate || new Date().toISOString().split("T")[0],
+          shift: receiptShift || "Day",
+          U_Shift: receiptShift || "Day",
           comments: receiptComments,
           autoClose: receiptAutoClose
         })
@@ -1418,6 +1425,9 @@ export default function Production() {
                                   <th className="px-3 py-1.5 text-left text-[9.5px] font-bold uppercase text-[#444444]">
                                     Date
                                   </th>
+                                  <th className="px-3 py-1.5 text-center text-[9.5px] font-bold uppercase text-[#444444]">
+                                    Shift (U_Shift)
+                                  </th>
                                   <th className="px-3 py-1.5 text-left text-[9.5px] font-bold uppercase text-[#444444]">
                                     Product
                                   </th>
@@ -1427,22 +1437,50 @@ export default function Production() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-black/[0.05]">
-                                {order.receipts.map((rec, idx) => (
-                                  <tr key={`${rec.doc_entry}_${idx}`}>
-                                    <td className="px-3 py-1.5 font-mono-code font-bold text-[#1a1a1a]">
-                                      #{rec.doc_num}
-                                    </td>
-                                    <td className="px-3 py-1.5 font-mono-code text-[#6b6863]">
-                                      {formatDate(rec.doc_date)}
-                                    </td>
-                                    <td className="px-3 py-1.5 font-semibold text-[#1a1a1a]">
-                                      {rec.item_code}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right font-mono-code font-bold text-emerald-700">
-                                      +{formatQty(rec.quantity, 2)} Kg (WH {rec.warehouse})
-                                    </td>
-                                  </tr>
-                                ))}
+                                {order.receipts.map((rec, idx) => {
+                                  const rawShift =
+                                    rec.shift ||
+                                    rec.U_Shift ||
+                                    (rec.comments && String(rec.comments).match(/\[Shift:\s*([^\]]+)\]/i)?.[1]) ||
+                                    "";
+                                  const normShift =
+                                    String(rawShift).trim().toUpperCase().startsWith("N")
+                                      ? "Night"
+                                      : String(rawShift).trim().toUpperCase().startsWith("D")
+                                      ? "Day"
+                                      : String(rawShift).trim();
+                                  return (
+                                    <tr key={`${rec.doc_entry}_${idx}`}>
+                                      <td className="px-3 py-1.5 font-mono-code font-bold text-[#1a1a1a]">
+                                        #{rec.doc_num}
+                                      </td>
+                                      <td className="px-3 py-1.5 font-mono-code text-[#6b6863]">
+                                        {formatDate(rec.doc_date)}
+                                      </td>
+                                      <td className="px-3 py-1.5 text-center">
+                                        {normShift ? (
+                                          <span
+                                            className={`font-mono-code text-[10px] font-bold uppercase px-2 py-0.5 rounded-[3px] border ${
+                                              normShift === "Night"
+                                                ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
+                                                : "bg-amber-500/10 text-amber-800 border-amber-500/30"
+                                            }`}
+                                          >
+                                            {normShift}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[#8a8780]">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-1.5 font-semibold text-[#1a1a1a]">
+                                        {rec.item_code}
+                                      </td>
+                                      <td className="px-3 py-1.5 text-right font-mono-code font-bold text-emerald-700">
+                                        +{formatQty(rec.quantity, 2)} Kg (WH {rec.warehouse})
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -2329,6 +2367,37 @@ export default function Production() {
                         WH {w.code} — {w.name}
                       </option>
                     ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Receipt Date (DocDate) & Shift UDF (U_Shift: Day / Night) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-[#1a1a1a] mb-1.5">
+                    Receipt Date (Posting Date) *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={receiptDate}
+                    onChange={e => setReceiptDate(e.target.value)}
+                    className="w-full border border-black/[0.18] rounded-[4px] px-3.5 py-2 text-sm font-mono-code font-bold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-[#1a1a1a] mb-1.5">
+                    Shift (SAP UDF: <span className="font-mono-code text-[#c8102e]">U_Shift</span>) *
+                  </label>
+                  <select
+                    required
+                    value={receiptShift}
+                    onChange={e => setReceiptShift(e.target.value)}
+                    className="w-full border border-black/[0.18] rounded-[4px] px-3.5 py-2 text-sm font-semibold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
+                  >
+                    <option value="Day">Day</option>
+                    <option value="Night">Night</option>
                   </select>
                 </div>
               </div>
