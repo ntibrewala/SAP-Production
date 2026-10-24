@@ -33,6 +33,9 @@ export default function Production() {
   const [editedDueDates, setEditedDueDates] = useState({});
   const [savingDueDateId, setSavingDueDateId] = useState(null);
   const [savedDueDates, setSavedDueDates] = useState({});
+  const [editedPlannedQtys, setEditedPlannedQtys] = useState({});
+  const [savingPlannedQtyId, setSavingPlannedQtyId] = useState(null);
+  const [savedPlannedQtys, setSavedPlannedQtys] = useState({});
 
   const parseFlexibleDateToIso = (val) => {
     if (!val) return null;
@@ -162,10 +165,13 @@ export default function Production() {
         : [];
       setOrders(sortedOrdData);
       const initialDueEdits = {};
+      const initialQtyEdits = {};
       sortedOrdData.forEach(o => {
         initialDueEdits[o.doc_entry] = formatDate(o.due_date);
+        initialQtyEdits[o.doc_entry] = String(Number(o.planned_qty || 0));
       });
       setEditedDueDates(initialDueEdits);
+      setEditedPlannedQtys(initialQtyEdits);
       if (mrpJson && Array.isArray(mrpJson.requirements)) {
         setMrpData(mrpJson);
       }
@@ -339,6 +345,84 @@ export default function Production() {
       setError(err.message);
     } finally {
       setSavingDueDateId(null);
+    }
+  };
+
+  // --- Modify & Update Planned Quantity in SAP ---
+  const handlePlannedQtyChange = (docEntry, val) => {
+    setEditedPlannedQtys(prev => ({ ...prev, [docEntry]: val }));
+    setSavedPlannedQtys(prev => ({ ...prev, [docEntry]: false }));
+  };
+
+  const isPlannedQtyDirty = (order) => {
+    const raw = String(editedPlannedQtys[order.doc_entry] ?? "").replace(/,/g, "").trim();
+    if (!raw) return false;
+    const editedNum = parseFloat(raw);
+    const origNum = Number(order.planned_qty || 0);
+    if (isNaN(editedNum)) return true;
+    return Math.abs(editedNum - origNum) > 0.0001;
+  };
+
+  const handleSavePlannedQty = async (order) => {
+    const raw = String(editedPlannedQtys[order.doc_entry] ?? "").replace(/,/g, "").trim();
+    const newQty = parseFloat(raw);
+    if (isNaN(newQty) || newQty <= 0) {
+      setError(`Please enter a valid Planned Quantity greater than 0 for Order #${order.doc_num}.`);
+      return;
+    }
+
+    const completed = Number(order.completed_qty || 0);
+    if (newQty < completed - 0.0001) {
+      setError(
+        `Planned Quantity (${formatQty(newQty)} Kg) cannot be less than Already Received Quantity (${formatQty(completed)} Kg) on Order #${order.doc_num}.`
+      );
+      return;
+    }
+
+    setSavingPlannedQtyId(order.doc_entry);
+    setError(null);
+    setStatusMsg(null);
+    try {
+      const res = await fetch(`/api/production/${order.doc_entry}/planned-qty`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plannedQuantity: newQty })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to update Planned Quantity for Order #${order.doc_num}`);
+      }
+
+      setOrders(prev =>
+        prev.map(o => {
+          if (o.doc_entry !== order.doc_entry) return o;
+          const updatedLines = (o.lines || []).map(l => {
+            const baseRatio = Number(l.base_qty || 0);
+            return {
+              ...l,
+              planned_qty: baseRatio > 0 ? baseRatio * newQty : l.planned_qty
+            };
+          });
+          return {
+            ...o,
+            planned_qty: newQty,
+            quantity_planned: newQty,
+            lines: updatedLines
+          };
+        })
+      );
+      setEditedPlannedQtys(prev => ({ ...prev, [order.doc_entry]: String(newQty) }));
+      setSavedPlannedQtys(prev => ({ ...prev, [order.doc_entry]: true }));
+      setStatusMsg(
+        data.message ||
+          `Updated Production Order #${order.doc_num} Planned Quantity to ${formatQty(newQty)} Kg in SAP via Service Layer`
+      );
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setSavingPlannedQtyId(null);
     }
   };
 
@@ -1192,14 +1276,51 @@ export default function Production() {
                     onClick={e => e.stopPropagation()}
                   >
                     {/* Quantities Box */}
-                    <div className="flex items-center gap-4 bg-[#faf9f7] px-4 py-2.5 rounded-[4px] border border-black/[0.08]">
+                    <div className="flex flex-wrap items-center gap-4 bg-[#faf9f7] px-4 py-2.5 rounded-[4px] border border-black/[0.08]">
                       <div className="text-right">
-                        <div className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-[#6b6863]">
-                          Planned Qty
+                        <div className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-[#6b6863] mb-0.5">
+                          Planned Qty ({order.uom || "Kg"})
                         </div>
-                        <div className="font-mono-code font-extrabold text-sm text-[#1a1a1a]">
-                          {formatQty(planned)} {order.uom || "Kg"}
-                        </div>
+                        {order.status_code === "L" || order.status_code === "C" ? (
+                          <div className="font-mono-code font-extrabold text-sm text-[#1a1a1a]">
+                            {formatQty(planned)} {order.uom || "Kg"}
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={editedPlannedQtys[order.doc_entry] ?? String(planned)}
+                              onChange={e => handlePlannedQtyChange(order.doc_entry, e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleSavePlannedQty(order);
+                                }
+                              }}
+                              title="Modify Planned Quantity (Kg) and click Update in SAP"
+                              className={`w-28 px-2 py-0.5 text-right font-mono-code font-extrabold text-sm rounded-[3px] border focus:outline-none transition-colors ${
+                                isPlannedQtyDirty(order)
+                                  ? "border-[#c8102e] bg-white text-[#c8102e] ring-2 ring-[#c8102e]/15"
+                                  : "border-black/[0.18] bg-white text-[#1a1a1a] focus:border-[#c8102e]"
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSavePlannedQty(order)}
+                              disabled={savingPlannedQtyId === order.doc_entry}
+                              className={`rp-btn py-1 px-2.5 text-[10px] ${
+                                isPlannedQtyDirty(order) ? "rp-btn-red" : "rp-btn-outline"
+                              }`}
+                            >
+                              {savingPlannedQtyId === order.doc_entry ? "Saving..." : "Update in SAP"}
+                            </button>
+                            {savedPlannedQtys[order.doc_entry] && !isPlannedQtyDirty(order) && (
+                              <span className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-emerald-700">
+                                Saved ✓
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="h-7 w-[1px] bg-black/[0.08]" />

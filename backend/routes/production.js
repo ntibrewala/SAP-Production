@@ -952,6 +952,93 @@ router.put("/:docEntry/due-date", async (req, res) => {
   }
 });
 
+// --- PUT /api/production/:docEntry/planned-qty: Modify & Update Production Order PlannedQuantity in SAP via Service Layer ---
+router.put("/:docEntry/planned-qty", async (req, res) => {
+  try {
+    const docEntry = Number(req.params.docEntry);
+    const { plannedQuantity, planned_qty } = req.body;
+
+    if (!docEntry || isNaN(docEntry)) {
+      return res.status(400).json({ error: "Invalid Production Order DocEntry" });
+    }
+
+    const rawQty = String(plannedQuantity ?? planned_qty ?? "").replace(/,/g, "").trim();
+    const newQty = Number(rawQty);
+    if (isNaN(newQty) || newQty <= 0) {
+      return res.status(400).json({
+        error: "Please enter a valid Planned Quantity greater than 0."
+      });
+    }
+
+    const [orderRows] = await db.execute(
+      `SELECT "DocEntry", "DocNum", "ItemCode", "Status", CAST(COALESCE("CmpltQty", 0) AS DOUBLE) AS "CmpltQty" FROM "OWOR" WHERE "DocEntry" = ?`,
+      [docEntry]
+    );
+    if (!orderRows || orderRows.length === 0) {
+      return res.status(404).json({ error: `Production Order ${docEntry} not found in SAP.` });
+    }
+
+    const orderInfo = orderRows[0];
+    if (orderInfo.Status === "L" || orderInfo.Status === "C") {
+      return res.status(400).json({
+        error: `Cannot change Planned Quantity on a ${
+          orderInfo.Status === "L" ? "Closed" : "Cancelled"
+        } Production Order (#${orderInfo.DocNum}).`
+      });
+    }
+
+    const completedQty = Number(orderInfo.CmpltQty || 0);
+    if (newQty < completedQty - 0.0001) {
+      return res.status(400).json({
+        error: `Planned Quantity (${newQty} Kg) cannot be less than Already Received Quantity (${completedQty} Kg) on Order #${orderInfo.DocNum}.`
+      });
+    }
+
+    await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+      PlannedQuantity: newQty
+    });
+
+    let updated = await serviceLayer.get(`/ProductionOrders(${docEntry})`);
+    const lines = updated?.ProductionOrderLines || [];
+    const linesToSync = lines.filter((l) => {
+      const baseRatio = Number(l.BaseQuantity || 0);
+      if (baseRatio <= 0) return false;
+      const expectedLinePlanned = baseRatio * newQty;
+      return Math.abs(Number(l.PlannedQuantity || 0) - expectedLinePlanned) > 0.001;
+    });
+
+    if (linesToSync.length > 0) {
+      try {
+        await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+          ProductionOrderLines: lines.map((l) => {
+            const baseRatio = Number(l.BaseQuantity || 0);
+            return {
+              DocumentAbsoluteEntry: docEntry,
+              LineNumber: l.LineNumber,
+              PlannedQuantity:
+                baseRatio > 0
+                  ? Number((baseRatio * newQty).toFixed(4))
+                  : Number(l.PlannedQuantity || 0)
+            };
+          })
+        });
+        updated = await serviceLayer.get(`/ProductionOrders(${docEntry})`);
+      } catch (lineSyncErr) {
+        console.warn("[ServiceLayer] Line PlannedQuantity sync warning:", lineSyncErr.message);
+      }
+    }
+
+    res.json({
+      message: `Updated Production Order #${updated.DocumentNumber} Planned Quantity to ${newQty.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg in SAP via Service Layer`,
+      planned_qty: newQty,
+      order: updated
+    });
+  } catch (err) {
+    console.error("[ServiceLayer] PUT /api/production/:docEntry/planned-qty error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- POST /api/production/:docEntry/issue: Issue Components to Production (SAP OIGE / InventoryGenExits) via Service Layer ---
 router.post("/:docEntry/issue", async (req, res) => {
   try {
