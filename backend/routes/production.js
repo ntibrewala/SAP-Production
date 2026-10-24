@@ -3,6 +3,88 @@ const router = express.Router();
 const db = require("../db");
 const serviceLayer = require("../serviceLayer");
 
+const MONTH_MAP = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12
+};
+
+function parseFlexibleDateToIso(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+
+  // 1. YYYY-MM-DD or YYYY/MM/DD
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+
+  // 2. DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (m) {
+    let d = Number(m[1]);
+    let mo = Number(m[2]);
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    if (mo > 12 && d <= 12) {
+      const tmp = d;
+      d = mo;
+      mo = tmp;
+    }
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+
+  // 3. DD MMM YYYY (e.g. "22 Oct 2026", "22-Oct-2026", "22 October 26")
+  m = s.match(/^(\d{1,2})[\s\-/,]+([A-Za-z]+)[\s\-/,]+(\d{2,4})$/);
+  if (m) {
+    const d = Number(m[1]);
+    const mo = MONTH_MAP[m[2].toLowerCase()];
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    if (mo && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+
+  // 4. MMM DD, YYYY (e.g. "Oct 22, 2026")
+  m = s.match(/^([A-Za-z]+)[\s\-/,]+(\d{1,2})[\s\-/,]+(\d{2,4})$/);
+  if (m) {
+    const mo = MONTH_MAP[m[1].toLowerCase()];
+    const d = Number(m[2]);
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    if (mo && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const mo = String(parsed.getMonth() + 1).padStart(2, "0");
+    const d = String(parsed.getDate()).padStart(2, "0");
+    return `${y}-${mo}-${d}`;
+  }
+  return null;
+}
+
 let shiftUdfCreateAttempted = false;
 async function resolveShiftUdfColumns(tryCreate = false) {
   let headerCol = null;
@@ -720,12 +802,14 @@ router.post("/", async (req, res) => {
     }
 
     const today = new Date().toISOString().split("T")[0];
+    const parsedDue = parseFlexibleDateToIso(dueDate) || today;
+    const parsedPost = parseFlexibleDateToIso(postingDate) || today;
     const createPayload = {
       ItemNo: cleanCode,
       PlannedQuantity: qty,
       ProductionOrderType: "bopotStandard",
-      PostingDate: postingDate || today,
-      DueDate: dueDate || today,
+      PostingDate: parsedPost,
+      DueDate: parsedDue,
       Warehouse: warehouse || "01"
     };
     if (remarks) {
@@ -822,6 +906,48 @@ router.put("/:docEntry/status", async (req, res) => {
     });
   } catch (err) {
     console.error("[ServiceLayer] PUT /api/production/:docEntry/status error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- PUT /api/production/:docEntry/due-date: Modify & Update Production Order DueDate in SAP via Service Layer ---
+router.put("/:docEntry/due-date", async (req, res) => {
+  try {
+    const docEntry = Number(req.params.docEntry);
+    const { dueDate, due_date } = req.body;
+
+    if (!docEntry || isNaN(docEntry)) {
+      return res.status(400).json({ error: "Invalid Production Order DocEntry" });
+    }
+
+    const rawInput = String(dueDate ?? due_date ?? "").trim();
+    const isoDueDate = parseFlexibleDateToIso(rawInput);
+    if (!isoDueDate) {
+      return res.status(400).json({
+        error: `Invalid Due Date "${rawInput}". Please enter a valid date (e.g. 23 Oct 2026, 23-10-2026, or 2026-10-23).`
+      });
+    }
+
+    try {
+      await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+        DueDate: isoDueDate
+      });
+    } catch (patchErr) {
+      // If new DueDate is earlier than existing StartDate/PostingDate in SAP, update StartDate/PostingDate along with DueDate
+      await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+        StartDate: isoDueDate,
+        DueDate: isoDueDate
+      });
+    }
+
+    const updated = await serviceLayer.get(`/ProductionOrders(${docEntry})`);
+    res.json({
+      message: `Updated Production Order #${updated.DocumentNumber} Due Date to ${isoDueDate} in SAP via Service Layer`,
+      due_date: isoDueDate,
+      order: updated
+    });
+  } catch (err) {
+    console.error("[ServiceLayer] PUT /api/production/:docEntry/due-date error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

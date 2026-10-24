@@ -30,12 +30,66 @@ export default function Production() {
   const [search, setSearch] = useState("");
   const [expandedOrders, setExpandedOrders] = useState({});
   const [busyOrderId, setBusyOrderId] = useState(null);
+  const [editedDueDates, setEditedDueDates] = useState({});
+  const [savingDueDateId, setSavingDueDateId] = useState(null);
+  const [savedDueDates, setSavedDueDates] = useState({});
+
+  const parseFlexibleDateToIso = (val) => {
+    if (!val) return null;
+    const s = String(val).trim();
+    if (!s) return null;
+    const monthMap = {
+      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+      apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+      aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+      oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+    };
+    let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) {
+      const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+        return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+    if (m) {
+      let d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+      if (y < 100) y += 2000;
+      if (mo > 12 && d <= 12) { const tmp = d; d = mo; mo = tmp; }
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+        return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    m = s.match(/^(\d{1,2})[\s\-/,]+([A-Za-z]+)[\s\-/,]+(\d{2,4})$/);
+    if (m) {
+      const d = Number(m[1]), mo = monthMap[m[2].toLowerCase()];
+      let y = Number(m[3]);
+      if (y < 100) y += 2000;
+      if (mo && d >= 1 && d <= 31) {
+        return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    m = s.match(/^([A-Za-z]+)[\s\-/,]+(\d{1,2})[\s\-/,]+(\d{2,4})$/);
+    if (m) {
+      const mo = monthMap[m[1].toLowerCase()], d = Number(m[2]);
+      let y = Number(m[3]);
+      if (y < 100) y += 2000;
+      if (mo && d >= 1 && d <= 31) {
+        return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    }
+    return null;
+  };
 
   const getOrderDueTime = (order) => {
     const raw = order?.due_date || order?.post_date || "";
     if (!raw) return Number.MAX_SAFE_INTEGER;
-    const str = String(raw).split("T")[0];
-    const t = new Date(str).getTime();
+    const iso = parseFlexibleDateToIso(raw) || String(raw).split("T")[0];
+    const t = new Date(iso).getTime();
     return isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
   };
 
@@ -107,6 +161,11 @@ export default function Production() {
         ? [...ordData].sort(compareOrdersByDueAsc)
         : [];
       setOrders(sortedOrdData);
+      const initialDueEdits = {};
+      sortedOrdData.forEach(o => {
+        initialDueEdits[o.doc_entry] = formatDate(o.due_date);
+      });
+      setEditedDueDates(initialDueEdits);
       if (mrpJson && Array.isArray(mrpJson.requirements)) {
         setMrpData(mrpJson);
       }
@@ -220,6 +279,66 @@ export default function Production() {
       setError(err.message);
     } finally {
       setBusyOrderId(null);
+    }
+  };
+
+  // --- Modify & Update Due Date in SAP ---
+  const handleDueDateChange = (docEntry, val) => {
+    setEditedDueDates(prev => ({ ...prev, [docEntry]: val }));
+    setSavedDueDates(prev => ({ ...prev, [docEntry]: false }));
+  };
+
+  const isDueDateDirty = (order) => {
+    const currentInput = String(editedDueDates[order.doc_entry] ?? "").trim();
+    const origFormatted = formatDate(order.due_date);
+    if (!currentInput || currentInput === origFormatted) return false;
+    const inputIso = parseFlexibleDateToIso(currentInput);
+    const origIso = parseFlexibleDateToIso(order.due_date);
+    if (inputIso && origIso) return inputIso !== origIso;
+    return currentInput !== origFormatted;
+  };
+
+  const handleSaveDueDate = async (order) => {
+    const rawVal = String(editedDueDates[order.doc_entry] ?? "").trim();
+    const isoDate = parseFlexibleDateToIso(rawVal);
+    if (!isoDate) {
+      setError(
+        `Invalid Due Date "${rawVal}" for Order #${order.doc_num}. Please enter a valid date (e.g. 23 Oct 2026, 23-10-2026, or 2026-10-23).`
+      );
+      return;
+    }
+
+    setSavingDueDateId(order.doc_entry);
+    setError(null);
+    setStatusMsg(null);
+    try {
+      const res = await fetch(`/api/production/${order.doc_entry}/due-date`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: isoDate })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to update Due Date for Order #${order.doc_num}`);
+      }
+
+      setOrders(prev =>
+        prev
+          .map(o => (o.doc_entry === order.doc_entry ? { ...o, due_date: isoDate } : o))
+          .sort(compareOrdersByDueAsc)
+      );
+      setEditedDueDates(prev => ({ ...prev, [order.doc_entry]: formatDate(isoDate) }));
+      setSavedDueDates(prev => ({ ...prev, [order.doc_entry]: true }));
+      setStatusMsg(
+        data.message ||
+          `Updated Production Order #${order.doc_num} Due Date to ${formatDate(isoDate)} in SAP via Service Layer`
+      );
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setSavingDueDateId(null);
     }
   };
 
@@ -1013,11 +1132,44 @@ export default function Production() {
                             {formatDate(order.post_date)}
                           </strong>
                         </span>
-                        <span>
-                          Due Date:{" "}
-                          <strong className="font-mono-code text-[#1a1a1a]">
-                            {formatDate(order.due_date)}
-                          </strong>
+                        <span
+                          className="inline-flex flex-wrap items-center gap-1.5"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <span>Due Date:</span>
+                          <input
+                            type="text"
+                            value={editedDueDates[order.doc_entry] ?? formatDate(order.due_date)}
+                            onChange={e => handleDueDateChange(order.doc_entry, e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveDueDate(order);
+                              }
+                            }}
+                            placeholder="DD MMM YYYY or YYYY-MM-DD"
+                            title="Type Due Date (e.g. 23 Oct 2026, 23-10-2026, or 2026-10-23) and click Update in SAP"
+                            className={`w-32 px-2 py-0.5 font-mono-code font-bold text-xs rounded-[3px] border focus:outline-none transition-colors ${
+                              isDueDateDirty(order)
+                                ? "border-[#c8102e] bg-white text-[#c8102e] ring-2 ring-[#c8102e]/15"
+                                : "border-black/[0.18] bg-white text-[#1a1a1a] focus:border-[#c8102e]"
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveDueDate(order)}
+                            disabled={savingDueDateId === order.doc_entry}
+                            className={`rp-btn py-1 px-2.5 text-[10px] ${
+                              isDueDateDirty(order) ? "rp-btn-red" : "rp-btn-outline"
+                            }`}
+                          >
+                            {savingDueDateId === order.doc_entry ? "Saving..." : "Update in SAP"}
+                          </button>
+                          {savedDueDates[order.doc_entry] && !isDueDateDirty(order) && (
+                            <span className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-emerald-700">
+                              Saved ✓
+                            </span>
+                          )}
                         </span>
                         <span>
                           Components:{" "}
@@ -1958,14 +2110,15 @@ export default function Production() {
 
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-[#444444] mb-1.5">
-                    Due Date *
+                    Due Date (e.g. 24 Oct 2026 or YYYY-MM-DD) *
                   </label>
                   <input
-                    type="date"
+                    type="text"
                     required
+                    placeholder="DD MMM YYYY or YYYY-MM-DD"
                     value={planDueDate}
                     onChange={e => setPlanDueDate(e.target.value)}
-                    className="w-full border border-black/[0.18] rounded-[4px] px-3.5 py-2 text-sm font-mono-code bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
+                    className="w-full border border-black/[0.18] rounded-[4px] px-3.5 py-2 text-sm font-mono-code font-bold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
                   />
                 </div>
 
