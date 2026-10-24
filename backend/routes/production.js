@@ -43,7 +43,7 @@ router.get("/", async (req, res) => {
         END AS "is_intermediate"
       FROM "OWOR" T0
       LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
-      ORDER BY T0."DocEntry" DESC
+      ORDER BY T0."DueDate" ASC, T0."DocNum" ASC, T0."DocEntry" ASC
     `;
 
     const linesSql = `
@@ -170,7 +170,7 @@ router.get("/mrp", async (req, res) => {
     try {
       const [slOrdersRes, slItemsRes, slTreesRes] = await Promise.all([
         serviceLayer.get(
-          "/ProductionOrders?$filter=ProductionOrderStatus eq 'boposPlanned' or ProductionOrderStatus eq 'boposReleased'&$orderby=AbsoluteEntry desc",
+          "/ProductionOrders?$filter=ProductionOrderStatus eq 'boposPlanned' or ProductionOrderStatus eq 'boposReleased'&$orderby=DueDate asc,DocumentNumber asc",
           { Prefer: "odata.maxpagesize=500" }
         ),
         serviceLayer.get(
@@ -233,9 +233,16 @@ router.get("/mrp", async (req, res) => {
         };
       }
 
-      const openSlOrders = (slOrdersRes?.value || []).filter(
-        (o) => Number(o.CompletedQuantity || 0) < Number(o.PlannedQuantity || 0) - 0.0001
-      );
+      const openSlOrders = (slOrdersRes?.value || [])
+        .filter(
+          (o) => Number(o.CompletedQuantity || 0) < Number(o.PlannedQuantity || 0) - 0.0001
+        )
+        .sort((a, b) => {
+          const da = a.DueDate ? new Date(String(a.DueDate).split("T")[0]).getTime() : Number.MAX_SAFE_INTEGER;
+          const dbTime = b.DueDate ? new Date(String(b.DueDate).split("T")[0]).getTime() : Number.MAX_SAFE_INTEGER;
+          if (da !== dbTime) return da - dbTime;
+          return Number(a.DocumentNumber || a.AbsoluteEntry || 0) - Number(b.DocumentNumber || b.AbsoluteEntry || 0);
+        });
 
       for (const o of openSlOrders) {
         const parentCode = o.ItemNo;
@@ -322,7 +329,7 @@ router.get("/mrp", async (req, res) => {
         LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
         WHERE T0."Status" IN ('P', 'R')
           AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
-        ORDER BY T0."DocNum" ASC
+        ORDER BY T0."DueDate" ASC, T0."DocNum" ASC
       `;
 
       const openWorLinesSql = `
@@ -342,7 +349,7 @@ router.get("/mrp", async (req, res) => {
         WHERE T0."Status" IN ('P', 'R')
           AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
           AND (COALESCE(T1."PlannedQty", 0) - COALESCE(T1."IssuedQty", 0)) > 0.0001
-        ORDER BY T0."DocNum" ASC, T1."LineNum" ASC
+        ORDER BY T0."DueDate" ASC, T0."DocNum" ASC, T1."LineNum" ASC
       `;
 
       const itemsMasterSql = `

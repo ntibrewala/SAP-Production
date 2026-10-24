@@ -26,9 +26,24 @@ export default function Production() {
   // Filters & Accordion state
   const [statusFilter, setStatusFilter] = useState("ACTIVE"); // ACTIVE | MRP | PRODUCED | ALL | P | R | L
   const [typeFilter, setTypeFilter] = useState("ALL"); // ALL | FG | SFG
+  const [sortBy, setSortBy] = useState("DUE_ASC"); // DUE_ASC | DUE_DESC | DOC_ASC | DOC_DESC
   const [search, setSearch] = useState("");
   const [expandedOrders, setExpandedOrders] = useState({});
   const [busyOrderId, setBusyOrderId] = useState(null);
+
+  const getOrderDueTime = (order) => {
+    const raw = order?.due_date || order?.post_date || "";
+    if (!raw) return Number.MAX_SAFE_INTEGER;
+    const str = String(raw).split("T")[0];
+    const t = new Date(str).getTime();
+    return isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+  };
+
+  const compareOrdersByDueAsc = (a, b) => {
+    const dueDiff = getOrderDueTime(a) - getOrderDueTime(b);
+    if (dueDiff !== 0) return dueDiff;
+    return Number(a?.doc_num || a?.doc_entry || 0) - Number(b?.doc_num || b?.doc_entry || 0);
+  };
 
   // --- Modal 1: Plan New Production Order ---
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -86,7 +101,10 @@ export default function Production() {
       const whData = whRes.ok ? await whRes.json() : [];
       const mrpJson = mrpRes && mrpRes.ok ? await mrpRes.json().catch(() => null) : null;
 
-      setOrders(ordData);
+      const sortedOrdData = Array.isArray(ordData)
+        ? [...ordData].sort(compareOrdersByDueAsc)
+        : [];
+      setOrders(sortedOrdData);
       if (mrpJson && Array.isArray(mrpJson.requirements)) {
         setMrpData(mrpJson);
       }
@@ -98,7 +116,7 @@ export default function Production() {
       }
 
       // Auto-expand first active (unproduced) order if none expanded
-      const firstActive = (ordData || []).find(
+      const firstActive = sortedOrdData.find(
         o =>
           !o.is_produced &&
           o.status_code !== "L" &&
@@ -471,24 +489,39 @@ export default function Production() {
 
   const isOrderOpen = (o) => o.status_code === "P" || o.status_code === "R";
 
-  // Filtered Orders
-  const filteredOrders = orders.filter(o => {
-    if (statusFilter === "ACTIVE") {
-      if (!isOrderOpen(o)) return false;
-    } else if (statusFilter !== "ALL" && o.status_code !== statusFilter) {
-      return false;
-    }
-    if (typeFilter === "FG" && o.is_intermediate === 1) return false;
-    if (typeFilter === "SFG" && o.is_intermediate !== 1) return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const matchDoc = String(o.doc_num || "").toLowerCase().includes(q);
-      const matchCode = (o.item_code || "").toLowerCase().includes(q);
-      const matchName = (o.item_name || "").toLowerCase().includes(q);
-      if (!matchDoc && !matchCode && !matchName) return false;
-    }
-    return true;
-  });
+  // Filtered & Sorted Orders (Default: Due Date Earliest First)
+  const filteredOrders = orders
+    .filter(o => {
+      if (statusFilter === "ACTIVE") {
+        if (!isOrderOpen(o)) return false;
+      } else if (statusFilter !== "ALL" && o.status_code !== statusFilter) {
+        return false;
+      }
+      if (typeFilter === "FG" && o.is_intermediate === 1) return false;
+      if (typeFilter === "SFG" && o.is_intermediate !== 1) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchDoc = String(o.doc_num || "").toLowerCase().includes(q);
+        const matchCode = (o.item_code || "").toLowerCase().includes(q);
+        const matchName = (o.item_name || "").toLowerCase().includes(q);
+        if (!matchDoc && !matchCode && !matchName) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "DUE_DESC") {
+        const dueDiff = getOrderDueTime(b) - getOrderDueTime(a);
+        if (dueDiff !== 0) return dueDiff;
+        return Number(b.doc_num || b.doc_entry || 0) - Number(a.doc_num || a.doc_entry || 0);
+      }
+      if (sortBy === "DOC_ASC") {
+        return Number(a.doc_num || a.doc_entry || 0) - Number(b.doc_num || b.doc_entry || 0);
+      }
+      if (sortBy === "DOC_DESC") {
+        return Number(b.doc_num || b.doc_entry || 0) - Number(a.doc_num || a.doc_entry || 0);
+      }
+      return compareOrdersByDueAsc(a, b);
+    });
 
   // KPI Counts
   const totalOrdersCount = orders.length;
@@ -503,16 +536,37 @@ export default function Production() {
       maximumFractionDigits: 2
     });
 
+  const orderDueByEntry = {};
+  orders.forEach(o => {
+    orderDueByEntry[o.doc_entry] = getOrderDueTime(o);
+  });
+  const sortPendingOrderRefs = (list) =>
+    [...(list || [])].sort((a, b) => {
+      const da = a?.due_date ? getOrderDueTime(a) : (orderDueByEntry[a?.doc_entry] ?? Number.MAX_SAFE_INTEGER);
+      const dbTime = b?.due_date ? getOrderDueTime(b) : (orderDueByEntry[b?.doc_entry] ?? Number.MAX_SAFE_INTEGER);
+      if (da !== dbTime) return da - dbTime;
+      return Number(a?.doc_num || a?.doc_entry || 0) - Number(b?.doc_num || b?.doc_entry || 0);
+    });
+
   // Compute live MRP from mrpData (backend /api/production/mrp) or fallback from open orders + rawMaterials
   const computedMrp = (() => {
     if (mrpData && Array.isArray(mrpData.requirements)) {
-      return mrpData;
+      return {
+        ...mrpData,
+        pendingOrders: sortPendingOrderRefs(mrpData.pendingOrders),
+        requirements: mrpData.requirements.map(r => ({
+          ...r,
+          pending_orders: sortPendingOrderRefs(r.pending_orders)
+        }))
+      };
     }
-    const openOrders = orders.filter(
-      o =>
-        (o.status_code === "P" || o.status_code === "R") &&
-        Number(o.completed_qty || 0) < Number(o.planned_qty || 0) - 0.0001
-    );
+    const openOrders = orders
+      .filter(
+        o =>
+          (o.status_code === "P" || o.status_code === "R") &&
+          Number(o.completed_qty || 0) < Number(o.planned_qty || 0) - 0.0001
+      )
+      .sort(compareOrdersByDueAsc);
     const rmMap = {};
     rawMaterials.forEach(rm => {
       rmMap[rm.code] = rm;
@@ -783,6 +837,22 @@ export default function Production() {
                 <option value="ALL">All (FG &amp; SFG)</option>
                 <option value="FG">Finished Goods (FG)</option>
                 <option value="SFG">Semi-Finished Goods (SFG)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-[#6b6863]">
+                Sort Plan:
+              </label>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                className="border border-black/[0.15] rounded-[4px] px-3 py-2 text-xs font-semibold bg-white text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
+              >
+                <option value="DUE_ASC">Due Date (Earliest First)</option>
+                <option value="DUE_DESC">Due Date (Latest First)</option>
+                <option value="DOC_ASC">Order # (Oldest First)</option>
+                <option value="DOC_DESC">Order # (Newest First)</option>
               </select>
             </div>
           </div>

@@ -72,7 +72,7 @@ router.get("/", async (req, res) => {
       WHERE T0."Status" IN ('P', 'R')
         AND COALESCE(T0."CmpltQty", 0) < COALESCE(T0."PlannedQty", 0)
         AND (COALESCE(T1."PlannedQty", 0) - COALESCE(T1."IssuedQty", 0)) > 0.0001
-      ORDER BY T0."DocNum" ASC
+      ORDER BY T0."DueDate" ASC, T0."DocNum" ASC, T1."LineNum" ASC
     `;
 
     const sfgBomsQuery = `
