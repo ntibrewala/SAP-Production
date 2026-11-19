@@ -1098,28 +1098,50 @@ router.post("/:docEntry/issue", async (req, res) => {
       });
     }
 
-    // 3. If order is still in Planned ('P') status, auto-release it before issuing components
-    if (orderInfo.Status === "P") {
-      await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
-        ProductionOrderStatus: "boposReleased"
-      });
+    let result;
+    try {
+      // 3. If order is still in Planned ('P') status, auto-release it before issuing components
+      if (orderInfo.Status === "P") {
+        await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+          ProductionOrderStatus: "boposReleased"
+        });
+      }
+
+      // 4. Post Issue for Production (InventoryGenExits / OIGE) via Service Layer
+      const exitPayload = {
+        DocDate: docDate || new Date().toISOString().split("T")[0],
+        Comments:
+          comments || `Issue for Production Order #${orderInfo.DocNum} (Entry ${docEntry})`,
+        DocumentLines: validLines.map((l) => ({
+          BaseType: 202,
+          BaseEntry: docEntry,
+          BaseLine: Number(l.lineNum),
+          Quantity: Number(l.quantity),
+          WarehouseCode: String(l.warehouse || "01").trim()
+        }))
+      };
+
+      result = await serviceLayer.post("/InventoryGenExits", exitPayload);
+    } catch (issueErr) {
+      if (linesNeedingManualSwitch.length > 0) {
+        try {
+          await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+            ProductionOrderLines: linesNeedingManualSwitch.map((l) => ({
+              DocumentAbsoluteEntry: docEntry,
+              LineNumber: Number(l.lineNum),
+              ProductionOrderIssueType: "im_Backflush"
+            }))
+          });
+        } catch (revertErr) {
+          console.warn(
+            `[ServiceLayer] Failed to revert lines back to im_Backflush on Order #${orderInfo.DocNum}:`,
+            revertErr.message
+          );
+        }
+      }
+      throw issueErr;
     }
 
-    // 4. Post Issue for Production (InventoryGenExits / OIGE) via Service Layer
-    const exitPayload = {
-      DocDate: docDate || new Date().toISOString().split("T")[0],
-      Comments:
-        comments || `Issue for Production Order #${orderInfo.DocNum} (Entry ${docEntry})`,
-      DocumentLines: validLines.map((l) => ({
-        BaseType: 202,
-        BaseEntry: docEntry,
-        BaseLine: Number(l.lineNum),
-        Quantity: Number(l.quantity),
-        WarehouseCode: String(l.warehouse || "01").trim()
-      }))
-    };
-
-    const result = await serviceLayer.post("/InventoryGenExits", exitPayload);
     res.status(201).json({
       message: `Issued ${validLines.length} component line(s) to Production Order #${orderInfo.DocNum} (Issue Doc #${result.DocNum}) via SAP Service Layer`,
       issueDocument: result
@@ -1176,10 +1198,67 @@ router.post("/:docEntry/receipt", async (req, res) => {
       });
     }
 
-    // 2. If order is still in Planned ('P') status, auto-release it before receiving FG/SFG
+    const receiptDate = String(docDate || new Date().toISOString().split("T")[0]).split("T")[0];
+
+    // 2. Ensure Raw Materials are always issued / backflushed before receiving FG/SFG
+    const [worLines] = await db.execute(
+      `SELECT "LineNum", "ItemCode", "IssueType", CAST(COALESCE("PlannedQty", 0) AS DOUBLE) AS "PlannedQty", CAST(COALESCE("IssuedQty", 0) AS DOUBLE) AS "IssuedQty", "wareHouse" FROM "WOR1" WHERE "DocEntry" = ?`,
+      [docEntry]
+    );
+
+    const unissuedManualLines = (worLines || []).filter(
+      (wl) => wl.IssueType === "M" && Number(wl.IssuedQty || 0) === 0
+    );
+    if (unissuedManualLines.length > 0) {
+      await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
+        ProductionOrderLines: unissuedManualLines.map((wl) => ({
+          DocumentAbsoluteEntry: docEntry,
+          LineNumber: Number(wl.LineNum),
+          ProductionOrderIssueType: "im_Backflush"
+        }))
+      });
+    }
+
+    // 3. If order is still in Planned ('P') status, auto-release it before issuing or receiving FG/SFG
     if (orderInfo.Status === "P") {
       await serviceLayer.patch(`/ProductionOrders(${docEntry})`, {
         ProductionOrderStatus: "boposReleased"
+      });
+    }
+
+    // If any lines are Manual ('M') with IssuedQty > 0 (partially issued manually, cannot switch back to Backflush),
+    // automatically issue the remaining proportional required quantity before receiving FG.
+    const orderPlannedQty = Number(orderInfo.PlannedQty || 0);
+    const orderCmpltQty = Number(orderInfo.CmpltQty || 0);
+    const targetProportion =
+      orderPlannedQty > 0 ? (orderCmpltQty + completeQty) / orderPlannedQty : 1;
+
+    const autoIssueLines = [];
+    for (const wl of worLines || []) {
+      const issuedQty = Number(wl.IssuedQty || 0);
+      if (wl.IssueType === "M" && issuedQty > 0) {
+        const linePlannedQty = Number(wl.PlannedQty || 0);
+        const expectedProportion = linePlannedQty * targetProportion;
+        if (expectedProportion - issuedQty > 0.0001) {
+          const remainingToIssue = Number((expectedProportion - issuedQty).toFixed(4));
+          if (remainingToIssue > 0) {
+            autoIssueLines.push({
+              BaseType: 202,
+              BaseEntry: docEntry,
+              BaseLine: Number(wl.LineNum),
+              Quantity: remainingToIssue,
+              WarehouseCode: String(wl.wareHouse || warehouse || orderInfo.Warehouse || "01").trim()
+            });
+          }
+        }
+      }
+    }
+
+    if (autoIssueLines.length > 0) {
+      await serviceLayer.post("/InventoryGenExits", {
+        DocDate: receiptDate,
+        Comments: `Auto-issue remaining components for Receipt on Production Order #${orderInfo.DocNum} (Entry ${docEntry})`,
+        DocumentLines: autoIssueLines
       });
     }
 
@@ -1206,8 +1285,7 @@ router.post("/:docEntry/receipt", async (req, res) => {
       });
     }
 
-    // 3. Post Receipt from Production (InventoryGenEntries / OIGN) via Service Layer
-    const receiptDate = String(docDate || new Date().toISOString().split("T")[0]).split("T")[0];
+    // 4. Post Receipt from Production (InventoryGenEntries / OIGN) via Service Layer
     const cleanShift = String(shift || U_Shift || "Day").trim();
     const { headerCol: shiftHeaderCol, lineCol: shiftLineCol } = await resolveShiftUdfColumns(true);
 
@@ -1227,7 +1305,6 @@ router.post("/:docEntry/receipt", async (req, res) => {
 
     const entryPayload = {
       DocDate: receiptDate,
-      TaxDate: receiptDate,
       Comments: finalComments,
       DocumentLines: docLines
     };
@@ -1259,7 +1336,6 @@ router.post("/:docEntry/receipt", async (req, res) => {
           // Fallback without unknown UDF property if U_Shift has not yet been added to OIGN
           const fallbackPayload = {
             DocDate: receiptDate,
-            TaxDate: receiptDate,
             Comments: finalComments,
             DocumentLines: docLines.map((dl) => {
               const copy = { ...dl };

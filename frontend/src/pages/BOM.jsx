@@ -1,4 +1,419 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from "react";
+import { createPortal } from "react-dom";
+
+function SearchableItemSelect({
+  value,
+  options,
+  onSelect,
+  placeholder = "Search by Material Name or Code (e.g. PBAT, CACO, RM0013)...",
+  canViewForeignName = false,
+  variant = "component", // "component" | "parent"
+  minMenuWidth = 480
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0, width: minMenuWidth });
+
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const listRef = useRef(null);
+
+  const selectedOption = useMemo(
+    () => options.find((o) => o.code === value) || null,
+    [options, value]
+  );
+
+  const filteredOptions = useMemo(() => {
+    const q = String(searchQuery || "").trim().toLowerCase();
+    if (!q) return options;
+
+    return options
+      .filter((opt) => {
+        const nameMatch = String(opt.name || "").toLowerCase().includes(q);
+        const codeMatch = String(opt.code || "").toLowerCase().includes(q);
+        const foreignMatch =
+          canViewForeignName &&
+          opt.foreignName &&
+          String(opt.foreignName).toLowerCase().includes(q);
+        return nameMatch || codeMatch || foreignMatch;
+      })
+      .sort((a, b) => {
+        const aName = String(a.name || "").toLowerCase();
+        const bName = String(b.name || "").toLowerCase();
+        const aCode = String(a.code || "").toLowerCase();
+        const bCode = String(b.code || "").toLowerCase();
+
+        const aExact = aCode === q || aName === q ? 1 : 0;
+        const bExact = bCode === q || bName === q ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+
+        const aStarts = aName.startsWith(q) || aCode.startsWith(q) ? 1 : 0;
+        const bStarts = bName.startsWith(q) || bCode.startsWith(q) ? 1 : 0;
+        if (aStarts !== bStarts) return bStarts - aStarts;
+
+        if (a.isPreferredType !== b.isPreferredType) {
+          return a.isPreferredType ? -1 : 1;
+        }
+        return 0;
+      });
+  }, [options, searchQuery, canViewForeignName]);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const desiredWidth = Math.max(rect.width, minMenuWidth);
+    const width = Math.min(desiredWidth, viewportW - 16);
+
+    let left = rect.left;
+    if (left + width > viewportW - 8) {
+      left = Math.max(8, viewportW - width - 8);
+    }
+
+    const spaceBelow = viewportH - rect.bottom;
+    const spaceAbove = rect.top;
+    const menuHeight = 320;
+    const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+    setMenuCoords({
+      top: openUpward ? undefined : rect.bottom + 4,
+      bottom: openUpward ? viewportH - rect.top + 4 : undefined,
+      left,
+      width
+    });
+  }, [minMenuWidth]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+    const handleScrollOrResize = () => updatePosition();
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (e) => {
+      if (
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target) &&
+        menuRef.current &&
+        !menuRef.current.contains(e.target)
+      ) {
+        setIsOpen(false);
+        setSearchQuery("");
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isOpen]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchQuery, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !listRef.current) return;
+    const activeEl = listRef.current.children[highlightedIndex];
+    if (activeEl && activeEl.scrollIntoView) {
+      activeEl.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex, isOpen]);
+
+  const handleSelectOption = (opt) => {
+    onSelect(opt);
+    setIsOpen(false);
+    setSearchQuery("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      setHighlightedIndex((prev) =>
+        filteredOptions.length > 0 ? (prev + 1) % filteredOptions.length : 0
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      setHighlightedIndex((prev) =>
+        filteredOptions.length > 0
+          ? (prev - 1 + filteredOptions.length) % filteredOptions.length
+          : 0
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      if (filteredOptions[highlightedIndex]) {
+        handleSelectOption(filteredOptions[highlightedIndex]);
+      }
+    } else if (e.key === "Escape") {
+      if (isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsOpen(false);
+        setSearchQuery("");
+      }
+    }
+  };
+
+  return (
+    <div className="relative w-full">
+      <div
+        ref={triggerRef}
+        role="combobox"
+        aria-expanded={isOpen}
+        tabIndex={0}
+        onClick={() => {
+          setIsOpen((prev) => !prev);
+        }}
+        onKeyDown={(e) => {
+          if (!isOpen && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            setIsOpen(true);
+            setSearchQuery(e.key);
+            return;
+          }
+          handleKeyDown(e);
+        }}
+        className={`w-full border rounded-[4px] px-2.5 py-1.5 text-xs bg-white cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+          isOpen
+            ? "border-[#c8102e] ring-1 ring-[#c8102e]/20"
+            : "border-black/[0.15] hover:border-black/[0.3]"
+        }`}
+      >
+        {selectedOption ? (
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <span className="font-bold text-[#1a1a1a] truncate">
+              {selectedOption.name}
+            </span>
+            {canViewForeignName &&
+              selectedOption.foreignName &&
+              String(selectedOption.foreignName).trim() && (
+                <span className="text-[11px] font-semibold text-[#006D77] truncate">
+                  — {String(selectedOption.foreignName).trim()}
+                </span>
+              )}
+            <span className="font-mono-code text-[11px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.09] shrink-0">
+              {selectedOption.code}
+            </span>
+            {selectedOption.badgeLabel && (
+              <span
+                className={`text-[10px] font-bold uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[3px] border shrink-0 ${
+                  selectedOption.badgeLabel === "SFG"
+                    ? "bg-[#006D77]/10 text-[#006D77] border-[#006D77]/25"
+                    : selectedOption.badgeLabel === "FG"
+                    ? "bg-[#c8102e]/10 text-[#c8102e] border-[#c8102e]/25"
+                    : "bg-[#faf9f7] text-[#444444] border-black/[0.12]"
+                }`}
+              >
+                {selectedOption.badgeLabel}
+              </span>
+            )}
+            {variant === "parent" && (
+              <span
+                className={`text-[10px] font-bold uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[3px] border shrink-0 ${
+                  selectedOption.hasBom
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                    : "bg-amber-50 text-amber-800 border-amber-200"
+                }`}
+              >
+                {selectedOption.hasBom ? "(Has BOM)" : "(No BOM Yet)"}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-[#8a8780] truncate">{placeholder}</span>
+        )}
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className={`h-3.5 w-3.5 text-[#6b6863] transition-transform ${
+              isOpen ? "rotate-180 text-[#c8102e]" : ""
+            }`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+      </div>
+
+      {isOpen &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{
+              position: "fixed",
+              top: menuCoords.top,
+              bottom: menuCoords.bottom,
+              left: menuCoords.left,
+              width: menuCoords.width
+            }}
+            className="z-[9999] bg-white border border-black/[0.15] rounded-[5px] shadow-2xl overflow-hidden"
+          >
+            {/* Search input header */}
+            <div className="p-2 bg-[#faf9f7] border-b border-black/[0.08] flex items-center gap-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-3.5 w-3.5 text-[#6b6863] shrink-0 ml-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
+                />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={placeholder}
+                className="w-full bg-white border border-black/[0.12] rounded-[3px] px-2.5 py-1.5 text-xs text-[#1a1a1a] font-medium focus:border-[#c8102e] focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    searchInputRef.current?.focus();
+                  }}
+                  className="text-xs text-[#6b6863] hover:text-[#1a1a1a] px-1.5 font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+              <span className="text-[10px] font-mono-code font-semibold text-[#6b6863] whitespace-nowrap px-1">
+                {filteredOptions.length} items
+              </span>
+            </div>
+
+            {/* Scrollable options list */}
+            <div ref={listRef} className="max-h-64 overflow-y-auto divide-y divide-black/[0.05]">
+              {filteredOptions.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-[#6b6863]">
+                  No matching items found for &ldquo;{searchQuery}&rdquo;
+                </div>
+              ) : (
+                filteredOptions.map((opt, idx) => {
+                  const isSelected = opt.code === value;
+                  const isHighlighted = idx === highlightedIndex;
+                  return (
+                    <div
+                      key={`${opt.compType || opt.badgeLabel}_${opt.code}`}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      onClick={() => handleSelectOption(opt)}
+                      className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-3 text-xs transition-colors ${
+                        isHighlighted
+                          ? "bg-[#c8102e]/[0.07]"
+                          : isSelected
+                          ? "bg-[#faf9f7]"
+                          : "bg-white hover:bg-[#faf9f7]"
+                      }`}
+                    >
+                      {/* Left: Material Name (bold #1a1a1a) + SAP Code badge + RM/SFG/FG badge */}
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span className="font-bold text-[#1a1a1a]">
+                          {opt.name}
+                        </span>
+                        {canViewForeignName &&
+                          opt.foreignName &&
+                          String(opt.foreignName).trim() && (
+                            <span className="text-[11px] font-semibold text-[#006D77]">
+                              — {String(opt.foreignName).trim()}
+                            </span>
+                          )}
+                        <span className="font-mono-code text-[11px] font-semibold px-1.5 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.09] shrink-0">
+                          {opt.code}
+                        </span>
+                        {opt.badgeLabel && (
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[3px] border shrink-0 ${
+                              opt.badgeLabel === "SFG"
+                                ? "bg-[#006D77]/10 text-[#006D77] border-[#006D77]/25"
+                                : opt.badgeLabel === "FG"
+                                ? "bg-[#c8102e]/10 text-[#c8102e] border-[#c8102e]/25"
+                                : "bg-[#faf9f7] text-[#444444] border-black/[0.12]"
+                            }`}
+                          >
+                            {opt.badgeLabel}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right: Rates & Stock (for component) or BOM status & Stock (for parent) */}
+                      {variant === "component" ? (
+                        <div className="flex items-center gap-2.5 shrink-0 font-mono-code text-[11px] whitespace-nowrap">
+                          <span className="text-[#444444]">
+                            <span className="text-[#c8102e] font-semibold">
+                              Std: ₹{Number(opt.stdRate || 0).toFixed(2)}
+                            </span>{" "}
+                            |{" "}
+                            <span className="text-[#006D77] font-semibold">
+                              Pur: ₹{Number(opt.purRate || 0).toFixed(2)}
+                            </span>
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.08] font-semibold">
+                            Stock: {Number(opt.onHand || 0).toFixed(2)} {opt.uom || "Kg"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-[0.05em] px-1.5 py-0.5 rounded-[3px] border ${
+                              opt.hasBom
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : "bg-amber-50 text-amber-800 border-amber-200"
+                            }`}
+                          >
+                            {opt.hasBom ? "(Has BOM)" : "(No BOM Yet)"}
+                          </span>
+                          <span className="font-mono-code text-[11px] px-1.5 py-0.5 rounded-[3px] bg-[#f4f2ef] text-[#1a1a1a] border border-black/[0.08] font-semibold">
+                            Stock: {Number(opt.onHand || 0).toFixed(2)} Kg
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
 
 const DEFAULT_WAREHOUSES = [
   { code: "01", name: "Tew Automation" },
@@ -275,7 +690,7 @@ export default function BOM({ user }) {
     setFormLines([
       {
         compType: "raw",
-        itemCode: rawMaterials[0]?.code || "",
+        itemCode: "",
         quantity: "",
         warehouse: defaultWh
       }
@@ -305,7 +720,7 @@ export default function BOM({ user }) {
     setFormLines(
       existingLines.length > 0
         ? existingLines
-        : [{ compType: "raw", itemCode: rawMaterials[0]?.code || "", quantity: "", warehouse: defaultWh }]
+        : [{ compType: "raw", itemCode: "", quantity: "", warehouse: defaultWh }]
     );
     setShowModal(true);
   };
@@ -327,7 +742,7 @@ export default function BOM({ user }) {
       ...prev,
       {
         compType: "raw",
-        itemCode: rawMaterials[0]?.code || "",
+        itemCode: "",
         quantity: "",
         warehouse: formWarehouse || warehouses[0]?.code || "01"
       }
@@ -343,14 +758,24 @@ export default function BOM({ user }) {
       prev.map((line, i) => {
         if (i !== idx) return line;
         if (field === "compType") {
-          const defaultCode =
+          const isCurrentMatch =
             val === "raw"
-              ? rawMaterials[0]?.code || ""
-              : availableItems.find(a => a.is_intermediate === 1 && a.code !== formTreeCode)?.code || "";
-          return { ...line, compType: val, itemCode: defaultCode };
+              ? rawMaterials.some(r => r.code === line.itemCode)
+              : availableItems.some(a => a.is_intermediate === 1 && a.code === line.itemCode);
+          return { ...line, compType: val, itemCode: isCurrentMatch ? line.itemCode : "" };
         }
         return { ...line, [field]: val };
       })
+    );
+  };
+
+  const handleLineItemSelect = (idx, opt) => {
+    setFormLines(prev =>
+      prev.map((line, i) =>
+        i === idx
+          ? { ...line, compType: opt.compType || line.compType, itemCode: opt.code }
+          : line
+      )
     );
   };
 
@@ -554,6 +979,72 @@ export default function BOM({ user }) {
       };
     }
     return { stdRate: 0, purRate: 0 };
+  };
+
+  const foreignNameByCode = {};
+  for (const b of allBoms) {
+    if (b.item_code && b.foreign_name) {
+      foreignNameByCode[b.item_code] = b.foreign_name;
+    }
+  }
+  for (const a of availableItems) {
+    if (a.code && a.foreign_name) {
+      foreignNameByCode[a.code] = a.foreign_name;
+    }
+  }
+  for (const g of goods) {
+    if (g.code && g.foreign_name) {
+      foreignNameByCode[g.code] = g.foreign_name;
+    }
+  }
+
+  const parentOptions = availableItems.map(item => ({
+    code: item.code,
+    name: item.name || item.code,
+    foreignName: item.foreign_name || foreignNameByCode[item.code] || "",
+    badgeLabel: item.is_intermediate ? "SFG" : "FG",
+    hasBom: Boolean(item.has_bom),
+    onHand: Number(item.on_hand || 0),
+    isPreferredType: !item.has_bom
+  }));
+
+  const rawComponentOptions = rawMaterials.map(rm => {
+    const rmRates = getComponentRates("raw", rm.code);
+    return {
+      code: rm.code,
+      name: rm.name || rm.code,
+      foreignName: rm.foreign_name || foreignNameByCode[rm.code] || "",
+      compType: "raw",
+      badgeLabel: "RM",
+      stdRate: rmRates.stdRate,
+      purRate: rmRates.purRate,
+      onHand: Number(rm.on_hand ?? rm.stock_level ?? 0),
+      uom: rm.uom || "Kg"
+    };
+  });
+
+  const sfgComponentOptions = sfgOptions.map(sfg => {
+    const sfgRates = getComponentRates("sfg", sfg.code);
+    return {
+      code: sfg.code,
+      name: sfg.name || sfg.code,
+      foreignName: sfg.foreign_name || foreignNameByCode[sfg.code] || "",
+      compType: "sfg",
+      badgeLabel: "SFG",
+      stdRate: sfgRates.stdRate,
+      purRate: sfgRates.purRate,
+      onHand: Number(sfg.on_hand ?? 0),
+      uom: "Kg"
+    };
+  });
+
+  const getComponentOptionsForRow = (rowCompType) => {
+    const primary = rowCompType === "sfg" ? sfgComponentOptions : rawComponentOptions;
+    const secondary = rowCompType === "sfg" ? rawComponentOptions : sfgComponentOptions;
+    return [
+      ...primary.map(o => ({ ...o, isPreferredType: true })),
+      ...secondary.map(o => ({ ...o, isPreferredType: false }))
+    ];
   };
 
   const modalTotalQty = formLines.reduce((sum, l) => sum + (parseFloat(l.quantity) || 0), 0);
@@ -1012,13 +1503,18 @@ export default function BOM({ user }) {
                       <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
                         Parent Item from SAP Item Master (FG / SFG) *
                       </label>
-                      <select
+                      <SearchableItemSelect
                         value={formTreeCode}
-                        onChange={e => {
-                          const code = e.target.value;
+                        options={parentOptions}
+                        canViewForeignName={canViewForeignName}
+                        variant="parent"
+                        minMenuWidth={560}
+                        placeholder="Search FG / SFG by Product Name or SAP Code (e.g. White silk, TO7, JEPP, Additive, FG0021)..."
+                        onSelect={(opt) => {
+                          const code = opt.code;
                           const selected = availableItems.find(i => i.code === code);
                           setFormTreeCode(code);
-                          setFormItemName(selected?.name || "");
+                          setFormItemName(selected?.name || opt.name || "");
                           const existingLines = allBoms
                             .filter(b => b.finished_good_id === code)
                             .map(b => ({
@@ -1031,31 +1527,7 @@ export default function BOM({ user }) {
                             setFormLines(existingLines);
                           }
                         }}
-                        className="w-full border border-black/[0.15] rounded-[4px] px-3 py-2 text-sm bg-white font-semibold text-[#1a1a1a] focus:border-[#c8102e] focus:outline-none"
-                        required
-                      >
-                        <option value="">-- Select FG or Semi-Finished Good --</option>
-                        <optgroup label={`Finished Goods (FG — ${availableItems.filter(i => !i.is_intermediate).length})`}>
-                          {availableItems.filter(i => !i.is_intermediate).map(item => {
-                            const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
-                            return (
-                              <option key={item.code} value={item.code}>
-                                {item.code} — {item.name}{fName} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                        <optgroup label={`Semi-Finished Goods (SFG — ${availableItems.filter(i => i.is_intermediate).length})`}>
-                          {availableItems.filter(i => i.is_intermediate).map(item => {
-                            const fName = canViewForeignName && item.foreign_name && String(item.foreign_name).trim() ? ` (${String(item.foreign_name).trim()})` : "";
-                            return (
-                              <option key={item.code} value={item.code}>
-                                {item.code} — {item.name}{fName} {item.has_bom ? "(Has BOM)" : "(No BOM Yet)"}
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="block text-[10.5px] font-bold text-[#6b6863] uppercase tracking-[0.1em] mb-1.5">
@@ -1191,31 +1663,16 @@ export default function BOM({ user }) {
                                 <option value="sfg">Sub-Assembly (SFG)</option>
                               </select>
                             </td>
-                            <td className="px-3 py-2">
-                              <select
+                            <td className="px-3 py-2 min-w-[320px]">
+                              <SearchableItemSelect
                                 value={line.itemCode}
-                                onChange={e => handleLineChange(idx, "itemCode", e.target.value)}
-                                className="w-full border border-black/[0.15] rounded-[4px] px-2.5 py-1.5 text-xs bg-white font-medium text-[#1a1a1a]"
-                              >
-                                <option value="">-- Select Component --</option>
-                                {line.compType === "raw"
-                                  ? rawMaterials.map(rm => {
-                                      const rmRates = getComponentRates("raw", rm.code);
-                                      return (
-                                        <option key={rm.code} value={rm.code}>
-                                          {rm.code} — {rm.name} (Std: ₹{rmRates.stdRate.toFixed(2)} | Pur: ₹{rmRates.purRate.toFixed(2)})
-                                        </option>
-                                      );
-                                    })
-                                  : sfgOptions.map(sfg => {
-                                      const sfgRates = getComponentRates("sfg", sfg.code);
-                                      return (
-                                        <option key={sfg.code} value={sfg.code}>
-                                          {sfg.code} — {sfg.name} (Std: ₹{sfgRates.stdRate.toFixed(2)} | Pur: ₹{sfgRates.purRate.toFixed(2)})
-                                        </option>
-                                      );
-                                    })}
-                              </select>
+                                options={getComponentOptionsForRow(line.compType)}
+                                canViewForeignName={canViewForeignName}
+                                variant="component"
+                                minMenuWidth={560}
+                                placeholder="Search by Material Name or Code (e.g. PBAT, CACO, RM0013)..."
+                                onSelect={(opt) => handleLineItemSelect(idx, opt)}
+                              />
                             </td>
                             <td className="px-3 py-2">
                               <select
